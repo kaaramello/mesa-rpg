@@ -550,10 +550,21 @@ function rollCustom() {
   rollDice(sides);
 }
 
+// Handler global de dado — garante apenas um ativo por vez
+let _diceHandler = null;
+let _diceSettled = true;
+
 function showDice3D(sides, callback) {
   const overlay = document.getElementById('dice-overlay');
   const cube = document.getElementById('dice-3d-cube');
   const result = document.getElementById('dice-result-display');
+
+  // Cancela qualquer rolagem anterior ainda em andamento
+  if (_diceHandler) {
+    socket.off('new_message', _diceHandler);
+    _diceHandler = null;
+  }
+  _diceSettled = false;
 
   const colors = {4:'#9C27B0',6:'#2196F3',8:'#4CAF50',10:'#FF9800',12:'#00BCD4',20:'#e94560',100:'#607D8B'};
   const col = colors[sides] || '#e94560';
@@ -569,39 +580,40 @@ function showDice3D(sides, callback) {
   result.innerHTML = '';
   overlay.classList.remove('hidden');
 
-  // Reinicia animação CSS
+  // Reinicia animação CSS forçando reflow
   cube.style.animation = 'none';
-  cube.offsetHeight;
+  void cube.offsetHeight;
   cube.style.animation = 'diceRoll 1.4s cubic-bezier(0.23,1,0.32,1) forwards';
 
-  // Registra listener ANTES de enviar o dado
-  let settled = false;
   const handler = (msg) => {
-    if (msg.type !== 'roll') return; // ignora chat e system
-    if (settled) return;
-    settled = true;
+    if (msg.type !== 'roll') return;
+    if (_diceSettled) return;
+    _diceSettled = true;
     socket.off('new_message', handler);
+    _diceHandler = null;
 
     const match = msg.text.match(/\*\*(\d+)\*\*/);
     const valor = match ? match[1] : '?';
     result.innerHTML = `
-      <div style="font-size:0.9rem;color:#888;letter-spacing:1px;margin-bottom:6px">${escHtml(msg.author)} · ${label}</div>
-      <div style="font-size:4rem;font-weight:900;color:${col};text-shadow:0 0 30px ${col}80;line-height:1">${valor}</div>`;
-    setTimeout(() => { overlay.classList.add('hidden'); }, 2500);
+      <div style="font-size:0.9rem;color:#aaa;letter-spacing:1px;margin-bottom:8px">${escHtml(msg.author)} · ${label}</div>
+      <div style="font-size:5rem;font-weight:900;color:#fff;text-shadow:0 0 40px ${col},0 0 80px ${col};line-height:1">${valor}</div>`;
+    setTimeout(() => { overlay.classList.add('hidden'); }, 2800);
   };
+
+  _diceHandler = handler;
   socket.on('new_message', handler);
 
-  // Envia o roll
   if (callback) callback();
 
-  // Fallback: fecha overlay se não receber resposta em 6s
+  // Fallback: fecha em 7s se não chegar resposta
   setTimeout(() => {
-    if (!settled) {
-      settled = true;
+    if (!_diceSettled) {
+      _diceSettled = true;
       socket.off('new_message', handler);
+      _diceHandler = null;
       overlay.classList.add('hidden');
     }
-  }, 6000);
+  }, 7000);
 }
 
 // renderMessage mantido apenas para compatibilidade — redireciona para fchat
@@ -637,9 +649,10 @@ function renderPlayers() {
     const sanRatio   = v.sanidade_max ? Math.min(1, Math.max(0, (v.sanidade || 0) / v.sanidade_max)) : 0;
     const enRatio    = v.energia_max  ? Math.min(1, Math.max(0, (v.energia  || 0) / v.energia_max))  : 0;
 
+    const initial = (p.name || '?')[0].toUpperCase();
     const avatarHtml = (v.avatar || p.avatar)
       ? `<img src="${v.avatar || p.avatar}" alt="">`
-      : `<span>${p.name[0].toUpperCase()}</span>`;
+      : `<span>${initial}</span>`;
 
     const isMine = (sid === socket.id);
     const canEdit = isMine || isGM;
@@ -757,7 +770,7 @@ function openGMSheet(sid, sheet) {
 let sheetData = JSON.parse(localStorage.getItem('rpg_sheet_v2') || '{}');
 
 const SHEET_SIMPLE_FIELDS = [
-  'name','age','height','weight','appearance','origin',
+  'name','age','height','weight',
   'forca','agilidade','inteligencia','mental','labia','furtividade','defesa',
   'investigacao','sobrevivencia','ocultismo','religiao','medicina','intuicao',
   'vida','vida-max','sanidade','sanidade-max','energia','energia-max',

@@ -7,7 +7,12 @@ const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' }, maxHttpBufferSize: 10e6 });
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  maxHttpBufferSize: 10e6,
+  transports: ['websocket', 'polling'],
+  allowEIO3: true
+});
 
 app.use('/static', express.static(path.join(__dirname, 'static')));
 

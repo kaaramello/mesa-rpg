@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mesa RPG Digital</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .container {
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 16px;
+    padding: 48px;
+    width: 420px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    text-align: center;
+  }
+  .logo { font-size: 3rem; margin-bottom: 8px; }
+  h1 { font-size: 1.8rem; color: #e94560; margin-bottom: 6px; }
+  .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 36px; }
+  .section { margin-bottom: 24px; }
+  label { display: block; text-align: left; font-size: 0.85rem; color: #aaa; margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%;
+    padding: 12px 14px;
+    background: #0f3460;
+    border: 1px solid #1a4a8a;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input[type=text]:focus { border-color: #e94560; }
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 12px;
+  }
+  .btn-primary { background: #e94560; color: #fff; }
+  .btn-primary:hover { background: #c73652; }
+  .btn-secondary { background: #0f3460; color: #e0e0e0; border: 1px solid #1a4a8a; }
+  .btn-secondary:hover { background: #1a4a8a; }
+  .divider { border: none; border-top: 1px solid #0f3460; margin: 28px 0; }
+  .join-section label { margin-bottom: 8px; }
+  .row { display: flex; gap: 8px; }
+  .row input { flex: 1; }
+  .row button { flex: 0 0 auto; padding: 12px 18px; }
+  .checkbox-row {
+    display: flex; align-items: center; gap: 8px;
+    margin: 12px 0; text-align: left;
+  }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: #e94560; }
+  .checkbox-row label { margin: 0; color: #ccc; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo">🎲</div>
+  <h1>Mesa RPG Digital</h1>
+  <p class="subtitle">Crie ou entre em uma sala para jogar</p>
+
+  <div class="section">
+    <label>Seu nome</label>
+    <input type="text" id="player-name" placeholder="Como você quer ser chamado?" maxlength="24">
+  </div>
+
+  <div class="section">
+    <div class="checkbox-row">
+      <input type="checkbox" id="is-gm">
+      <label for="is-gm">Sou o Mestre (GM) — tenho controle total da mesa</label>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" onclick="createRoom()">✦ Criar Nova Sala</button>
+
+  <hr class="divider">
+
+  <div class="join-section">
+    <label>Entrar em sala existente</label>
+    <div class="row">
+      <input type="text" id="room-code" placeholder="Código da sala (ex: AB3X9Z)" maxlength="6" style="text-transform:uppercase">
+      <button class="btn btn-secondary" style="margin:0" onclick="joinRoom()">Entrar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('room-code').addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+  });
+
+  function createRoom() {
+    const name = document.getElementById('player-name').value.trim();
+    if (!name) { alert('Digite seu nome!'); return; }
+    const isGM = document.getElementById('is-gm').checked;
+    const roomId = Math.random().toString(36).substr(2, 6).toUpperCase();
+    sessionStorage.setItem('player_name', name);
+    sessionStorage.setItem('is_gm', isGM ? '1' : '0');
+    window.location.href = `/room/${roomId}`;
+  }
+
+  function joinRoom() {
+    const name = document.getElementById('player-name').value.trim();
+    const code = document.getElementById('room-code').value.trim().toUpperCase();
+    if (!name) { alert('Digite seu nome!'); return; }
+    if (!code || code.length < 4) { alert('Digite um código de sala válido!'); return; }
+    const isGM = document.getElementById('is-gm').checked;
+    sessionStorage.setItem('player_name', name);
+    sessionStorage.setItem('is_gm', isGM ? '1' : '0');
+    window.location.href = `/room/${code}`;
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const code = document.getElementById('room-code').value.trim();
+      if (code.length >= 4) joinRoom(); else createRoom();
+    }
+  });
+</script>
+</body>
+</html>

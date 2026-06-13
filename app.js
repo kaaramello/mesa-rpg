@@ -227,7 +227,19 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Mesa RPG Digital rodando na porta ${PORT}`);
-});
+function createServer(port) {
+  return new Promise((resolve) => {
+    server.listen(port, () => {
+      console.log(`Mesa RPG Digital rodando na porta ${port}`);
+      resolve();
+    });
+  });
+}
+
+// Roda direto se não for importado pelo Electron
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  createServer(PORT);
+}
+
+module.exports = { createServer };

@@ -1,9 +1,8 @@
-// ===================== CONEXÃO =====================
+// ===================== INIT =====================
 const ROOM_ID = window.ROOM_ID;
 const playerName = sessionStorage.getItem('player_name') || 'Jogador';
 const isGM = sessionStorage.getItem('is_gm') === '1';
 
-// Token de sessão único por aba — persiste durante reconexões, mas muda em nova aba
 function getSessionToken() {
   let t = sessionStorage.getItem('rpg_session_token');
   if (!t) {
@@ -14,1291 +13,953 @@ function getSessionToken() {
 }
 const SESSION_TOKEN = getSessionToken();
 
-const socket = io();
+if (!isGM) document.body.classList.add('not-gm');
+
+// ===================== SOCKET =====================
+const socket = io({ transports: ['websocket', 'polling'] });
 
 socket.on('connect', () => {
   socket.emit('join', { room_id: ROOM_ID, player_name: playerName, is_gm: isGM, token: SESSION_TOKEN });
 });
 
 socket.on('kicked', (data) => {
-  document.body.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:#e0e0e0;font-family:sans-serif;flex-direction:column;gap:16px">
-      <div style="font-size:3rem">⚠️</div>
-      <h2 style="color:#e94560">Sessão encerrada</h2>
-      <p style="color:#aaa">${data.reason || 'Você foi desconectado.'}</p>
-      <a href="/" style="background:#e94560;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600">Voltar ao início</a>
-    </div>`;
-  socket.disconnect();
+  alert('Você foi desconectado: ' + (data.reason || 'Sessão encerrada.'));
+  window.location.href = '/';
 });
 
-socket.on('room_state', (data) => {
-  Object.keys(tokens).forEach(k => delete tokens[k]);
-  for (const [id, token] of Object.entries(data.tokens)) tokens[id] = token;
+// ===================== PLAYER LIST =====================
+let players = {};
+const PLAYER_COLORS = ['#7c6af7','#e94560','#4caf50','#ff9800','#2196F3','#00bcd4','#9c27b0','#ff5722'];
 
-  for (const msg of data.messages) {
-    renderFChatMessage(msg);
-    if (msg.type === 'roll') renderDiceHistory(msg);
-  }
+function playerColor(sid) {
+  const keys = Object.keys(players);
+  const idx = keys.indexOf(sid);
+  return PLAYER_COLORS[idx % PLAYER_COLORS.length];
+}
 
-  if (data.map) Object.assign(mapState, data.map);
-  if (data.map && data.map.background) loadBgFromUrl(data.map.background);
-
-  redraw();
-  if (data.map) syncGridPanel(data.map);
-  // players chegam logo depois via player_list
-});
-
-// Fonte única de verdade para a lista de jogadores
-socket.on('player_list', (data) => {
-  Object.keys(players).forEach(k => delete players[k]);
-  const localVitals = JSON.parse(localStorage.getItem('rpg_sheet_v2') || '{}')._vitals_cache || {};
-  for (const [sid, p] of Object.entries(data)) {
-    players[sid] = { ...p };
-    if (sid === socket.id) {
-      // usa vitais locais para si mesmo (mais atualizado)
-      players[sid].vitals = localVitals;
-      players[sid].name = playerName;
-      players[sid].is_gm = isGM;
-    }
-  }
+socket.on('player_list', (list) => {
+  players = list;
   renderPlayers();
-  redraw();
-});
-socket.on('new_message', (msg) => {
-  renderFChatMessage(msg);    // chat flutuante — todas as mensagens
-  if (msg.type === 'roll') renderDiceHistory(msg); // histórico de dados no sidebar
-});
-socket.on('player_vitals_updated', (data) => {
-  if (players[data.sid]) {
-    players[data.sid].vitals = data.vitals;
-    if (data.vitals.avatar) players[data.sid].avatar = data.vitals.avatar;
-    if (data.vitals.char_name) players[data.sid].char_name = data.vitals.char_name;
-  }
-  renderPlayers();
-  redraw();
-});
-socket.on('player_sheet_data', (data) => {
-  openGMSheet(data.sid, data.sheet);
-});
-socket.on('token_added', (t) => { tokens[t.id] = t; redraw(); });
-socket.on('token_moved', (d) => { if (tokens[d.token_id]) { tokens[d.token_id].x = d.x; tokens[d.token_id].y = d.y; } redraw(); });
-socket.on('token_removed', (d) => { delete tokens[d.token_id]; redraw(); });
-socket.on('token_updated', (t) => { tokens[t.id] = { ...tokens[t.id], ...t }; redraw(); });
-socket.on('map_updated', (m) => {
-  Object.assign(mapState, m);
-  if (m.background) loadBgFromUrl(m.background);
-  redraw();
+  updateNavAvatar();
+  const badge = document.getElementById('player-badge');
+  if (badge) badge.textContent = Object.keys(list).length + ' online';
 });
 
-// ===================== ESTADO =====================
-const tokens = {};
-const players = {};
-let mapState = {
-  show_grid: true, grid_size: 50, width: 3000, height: 2000, background: null,
-  grid_color: '#ffffff', grid_opacity: 0.15, grid_type: 'square', snap: true
-};
-let bgImage = null;
-let currentTool = 'select';
-let zoom = 1;
-let panX = 0, panY = 0;
-let isDragging = false;
-let dragToken = null;
-let dragOffX = 0, dragOffY = 0;
-let isPanning = false;
-let panStartX = 0, panStartY = 0;
-let panOriginX = 0, panOriginY = 0;
-let measureStart = null;
-let measureEnd = null;
-let selectedTokenId = null;
-let selectedColor = '#e94560';
-let selectedEmoji = '⚔️';
-let contextTokenId = null;
-
-// ===================== CANVAS =====================
-const canvas = document.getElementById('map-canvas');
-const ctx = canvas.getContext('2d');
-
-function resizeCanvas() {
-  const container = document.getElementById('map-container');
-  canvas.width = container.clientWidth;
-  canvas.height = container.clientHeight;
-  redraw();
-}
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
-
-function redraw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.save();
-  ctx.translate(panX, panY);
-  ctx.scale(zoom, zoom);
-
-  // Background
-  if (bgImage) {
-    ctx.drawImage(bgImage, 0, 0, mapState.width, mapState.height);
-  } else {
-    ctx.fillStyle = '#111827';
-    ctx.fillRect(0, 0, mapState.width, mapState.height);
-  }
-
-  // Grid
-  if (mapState.show_grid) drawGrid();
-
-  // Tokens
-  for (const token of Object.values(tokens)) drawToken(token);
-
-  // Measure
-  if (measureStart && measureEnd) drawMeasure();
-
-  ctx.restore();
-}
-
-function drawGrid() {
-  const gs = mapState.grid_size;
-  const col = mapState.grid_color || '#ffffff';
-  const op = mapState.grid_opacity ?? 0.15;
-  const hex = (mapState.grid_type === 'hex');
-
-  // Parse color to rgba
-  const r = parseInt(col.slice(1,3),16), g = parseInt(col.slice(3,5),16), b = parseInt(col.slice(5,7),16);
-  ctx.strokeStyle = `rgba(${r},${g},${b},${op})`;
-  ctx.lineWidth = 1 / zoom;
-
-  if (hex) {
-    // Hexagonal flat-top
-    const w = gs;
-    const h = gs * Math.sqrt(3) / 2;
-    ctx.beginPath();
-    for (let row = 0; row * h < mapState.height + h; row++) {
-      for (let col2 = 0; col2 * w * 0.75 < mapState.width + w; col2++) {
-        const cx = col2 * w * 0.75;
-        const cy = row * h * 2 + (col2 % 2 === 0 ? 0 : h);
-        for (let i = 0; i < 6; i++) {
-          const angle = Math.PI / 180 * (60 * i - 30);
-          const x = cx + gs / 2 * Math.cos(angle);
-          const y = cy + gs / 2 * Math.sin(angle);
-          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        }
-        ctx.closePath();
-      }
-    }
-    ctx.stroke();
-  } else {
-    ctx.beginPath();
-    for (let x = 0; x <= mapState.width; x += gs) {
-      ctx.moveTo(x, 0); ctx.lineTo(x, mapState.height);
-    }
-    for (let y = 0; y <= mapState.height; y += gs) {
-      ctx.moveTo(0, y); ctx.lineTo(mapState.width, y);
-    }
-    ctx.stroke();
-  }
-}
-
-const tokenImageCache = {};
-
-function drawToken(token) {
-  const gs = mapState.grid_size;
-  const cx = token.x * gs + gs / 2;
-  const cy = token.y * gs + gs / 2;
-  const r = gs * 0.42;
-  const isSelected = token.id === selectedTokenId;
-
-  ctx.shadowColor = token.color;
-  ctx.shadowBlur = isSelected ? 18 : 8;
-
-  // Circle
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = token.color;
-  ctx.fill();
-  if (isSelected) {
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 3 / zoom;
-    ctx.stroke();
-  }
-  ctx.shadowBlur = 0;
-
-  // Avatar image or emoji
-  if (token.avatarUrl) {
-    if (!tokenImageCache[token.id]) {
-      const img = new Image();
-      img.src = token.avatarUrl;
-      img.onload = () => { tokenImageCache[token.id] = img; redraw(); };
-      tokenImageCache[token.id] = null;
-    }
-    const img = tokenImageCache[token.id];
-    if (img) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, r - 2/zoom, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
-      ctx.restore();
-    }
-  } else {
-    const emojiSize = gs * 0.5;
-    ctx.font = `${emojiSize}px serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(token.emoji || '?', cx, cy);
-  }
-
-  // Name
-  ctx.font = `bold ${gs * 0.22}px Segoe UI`;
-  ctx.fillStyle = '#fff';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText(token.name, cx, cy + r + 3 / zoom);
-
-  // HP bar
-  if (token.hp !== undefined && token.hp !== null && token.hp_max) {
-    const barW = gs * 0.8;
-    const barH = gs * 0.1;
-    const bx = cx - barW / 2;
-    const by = cy + r + gs * 0.28;
-    const ratio = Math.max(0, Math.min(1, token.hp / token.hp_max));
-    ctx.fillStyle = '#333';
-    ctx.fillRect(bx, by, barW, barH);
-    ctx.fillStyle = ratio > 0.5 ? '#4CAF50' : ratio > 0.25 ? '#FF9800' : '#e94560';
-    ctx.fillRect(bx, by, barW * ratio, barH);
-  }
-}
-
-function drawMeasure() {
-  const gs = mapState.grid_size;
-  const x1 = measureStart.x * gs + gs / 2;
-  const y1 = measureStart.y * gs + gs / 2;
-  const x2 = measureEnd.x * gs + gs / 2;
-  const y2 = measureEnd.y * gs + gs / 2;
-  const dx = measureEnd.x - measureStart.x;
-  const dy = measureEnd.y - measureStart.y;
-  const dist = Math.sqrt(dx * dx + dy * dy).toFixed(1);
-
-  ctx.strokeStyle = '#FFD700';
-  ctx.lineWidth = 2 / zoom;
-  ctx.setLineDash([6 / zoom, 4 / zoom]);
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  const el = document.getElementById('measure-display');
-  el.textContent = `${dist} quadrados`;
-  el.style.display = 'block';
-}
-
-// ===================== MOUSE EVENTS =====================
-function canvasToWorld(cx, cy) {
-  return { x: (cx - panX) / zoom, y: (cy - panY) / zoom };
-}
-function worldToGrid(wx, wy) {
-  const gs = mapState.grid_size;
-  return { x: Math.floor(wx / gs), y: Math.floor(wy / gs) };
-}
-
-function getTokenAt(gx, gy) {
-  for (const token of Object.values(tokens)) {
-    if (token.x === gx && token.y === gy) return token;
-  }
-  return null;
-}
-
-canvas.addEventListener('mousedown', (e) => {
-  if (e.button === 2) return;
-  const world = canvasToWorld(e.clientX - canvas.getBoundingClientRect().left, e.clientY - canvas.getBoundingClientRect().top);
-  const grid = worldToGrid(world.x, world.y);
-  hideContextMenu();
-
-  if (currentTool === 'move') {
-    isPanning = true;
-    panStartX = e.clientX;
-    panStartY = e.clientY;
-    panOriginX = panX;
-    panOriginY = panY;
-    canvas.style.cursor = 'grabbing';
-    return;
-  }
-
-  if (currentTool === 'measure') {
-    measureStart = grid;
-    measureEnd = grid;
-    return;
-  }
-
-  // select tool
-  const token = getTokenAt(grid.x, grid.y);
-  if (token) {
-    dragToken = token;
-    dragOffX = world.x - token.x * mapState.grid_size;
-    dragOffY = world.y - token.y * mapState.grid_size;
-    selectedTokenId = token.id;
-    isDragging = true;
-  } else {
-    selectedTokenId = null;
-    // start pan with middle button or space held
-    if (e.button === 1 || spaceHeld) {
-      isPanning = true;
-      panStartX = e.clientX;
-      panStartY = e.clientY;
-      panOriginX = panX;
-      panOriginY = panY;
-    }
-  }
-  redraw();
-});
-
-canvas.addEventListener('mousemove', (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const world = canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
-  const grid = worldToGrid(world.x, world.y);
-
-  if (isPanning) {
-    panX = panOriginX + (e.clientX - panStartX);
-    panY = panOriginY + (e.clientY - panStartY);
-    redraw();
-    return;
-  }
-
-  if (currentTool === 'measure' && measureStart) {
-    measureEnd = grid;
-    redraw();
-    return;
-  }
-
-  if (isDragging && dragToken) {
-    const gs = mapState.grid_size;
-    const newGX = Math.floor((world.x - dragOffX + gs / 2) / gs);
-    const newGY = Math.floor((world.y - dragOffY + gs / 2) / gs);
-    if (newGX !== dragToken.x || newGY !== dragToken.y) {
-      dragToken.x = newGX;
-      dragToken.y = newGY;
-      socket.emit('token_move', { room_id: ROOM_ID, token_id: dragToken.id, x: newGX, y: newGY });
-      redraw();
-    }
-  }
-});
-
-canvas.addEventListener('mouseup', () => {
-  isDragging = false;
-  dragToken = null;
-  isPanning = false;
-  canvas.style.cursor = currentTool === 'move' ? 'grab' : 'default';
-});
-
-canvas.addEventListener('contextmenu', (e) => {
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const world = canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
-  const grid = worldToGrid(world.x, world.y);
-  const token = getTokenAt(grid.x, grid.y);
-  if (token) {
-    contextTokenId = token.id;
-    selectedTokenId = token.id;
-    showContextMenu(e.clientX, e.clientY);
-    redraw();
-  }
-});
-
-canvas.addEventListener('wheel', (e) => {
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-  const delta = e.deltaY > 0 ? 0.9 : 1.1;
-  const newZoom = Math.min(3, Math.max(0.2, zoom * delta));
-  panX = mx - (mx - panX) * (newZoom / zoom);
-  panY = my - (my - panY) * (newZoom / zoom);
-  zoom = newZoom;
-  document.getElementById('zoom-info').textContent = Math.round(zoom * 100) + '%';
-  redraw();
-}, { passive: false });
-
-let spaceHeld = false;
-document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && e.target === document.body) { spaceHeld = true; e.preventDefault(); }
-  if (e.key === 's' && e.target === document.body) setTool('select');
-  if (e.key === 'm' && e.target === document.body) setTool('move');
-  if (e.key === 'r' && e.target === document.body) setTool('measure');
-  if (e.key === 'Delete' && selectedTokenId && e.target === document.body) removeToken(selectedTokenId);
-});
-document.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceHeld = false; });
-
-// ===================== FERRAMENTAS =====================
-function setTool(tool) {
-  currentTool = tool;
-  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(`tool-${tool}`)?.classList.add('active');
-  canvas.style.cursor = tool === 'move' ? 'grab' : 'default';
-  if (tool !== 'measure') {
-    measureStart = null; measureEnd = null;
-    document.getElementById('measure-display').style.display = 'none';
-  }
-  redraw();
-}
-
-function toggleGrid() {
-  mapState.show_grid = !mapState.show_grid;
-  const cb = document.getElementById('grid-visible');
-  if (cb) cb.checked = mapState.show_grid;
-  socket.emit('map_update', { room_id: ROOM_ID, map: { show_grid: mapState.show_grid } });
-  redraw();
-}
-
-// ===================== TOKENS =====================
-function openAddToken() {
-  document.getElementById('modal-token').classList.remove('hidden');
-  document.getElementById('token-name').focus();
-}
-
-function pickColor(el) {
-  document.querySelectorAll('.color-opt').forEach(e => e.classList.remove('selected'));
-  el.classList.add('selected');
-  selectedColor = el.dataset.color;
-}
-function pickEmoji(el) {
-  document.querySelectorAll('.emoji-opt').forEach(e => e.classList.remove('selected'));
-  el.classList.add('selected');
-  selectedEmoji = el.dataset.emoji;
-}
-
-function addToken() {
-  const name = document.getElementById('token-name').value.trim() || 'Token';
-  const hp = document.getElementById('token-hp').value;
-  const hpMax = document.getElementById('token-hp-max').value;
-  const id = 't_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
-  const token = {
-    id, name, color: selectedColor, emoji: selectedEmoji,
-    x: Math.floor(((-panX / zoom) + canvas.width / zoom / 2) / mapState.grid_size),
-    y: Math.floor(((-panY / zoom) + canvas.height / zoom / 2) / mapState.grid_size),
-    hp: hp !== '' ? parseInt(hp) : null,
-    hp_max: hpMax !== '' ? parseInt(hpMax) : null,
-  };
-  tokens[id] = token;
-  socket.emit('token_add', { room_id: ROOM_ID, token });
-  closeModal('modal-token');
-  document.getElementById('token-name').value = '';
-  document.getElementById('token-hp').value = '';
-  document.getElementById('token-hp-max').value = '';
-  redraw();
-}
-
-function removeToken(id) {
-  delete tokens[id];
-  if (selectedTokenId === id) selectedTokenId = null;
-  socket.emit('token_remove', { room_id: ROOM_ID, token_id: id });
-  redraw();
-}
-
-// ===================== CONTEXT MENU =====================
-function showContextMenu(x, y) {
-  const menu = document.getElementById('token-menu');
-  menu.classList.remove('hidden');
-  menu.style.left = x + 'px';
-  menu.style.top = y + 'px';
-}
-function hideContextMenu() { document.getElementById('token-menu').classList.add('hidden'); }
-
-function tokenMenuAction(action) {
-  hideContextMenu();
-  const token = tokens[contextTokenId];
-  if (!token) return;
-  if (action === 'remove') {
-    removeToken(contextTokenId);
-  } else if (action === 'hp') {
-    const val = prompt(`HP de ${token.name} (atual: ${token.hp ?? '?'} / ${token.hp_max ?? '?'})\nNovo HP:`);
-    if (val !== null) {
-      token.hp = parseInt(val) || 0;
-      socket.emit('token_update', { room_id: ROOM_ID, token: { id: token.id, hp: token.hp } });
-      redraw();
-    }
-  } else if (action === 'edit') {
-    const val = prompt(`Nome do token:`, token.name);
-    if (val !== null && val.trim()) {
-      token.name = val.trim();
-      socket.emit('token_update', { room_id: ROOM_ID, token: { id: token.id, name: token.name } });
-      redraw();
-    }
-  }
-}
-
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('#token-menu')) hideContextMenu();
-});
-
-// ===================== CHAT / MENSAGENS =====================
-function sendChat() {
-  const input = document.getElementById('chat-input');
-  const text = input.value.trim();
-  if (!text) return;
-  socket.emit('chat_message', { room_id: ROOM_ID, text });
-  input.value = '';
-}
-function chatKeydown(e) { if (e.key === 'Enter') sendChat(); }
-
-function rollDice(sides) {
-  const count = parseInt(document.getElementById('dice-count').value) || 1;
-  const mod = parseInt(document.getElementById('dice-mod').value) || 0;
-  showDice3D(sides, () => {
-    socket.emit('roll_dice', { room_id: ROOM_ID, dice: sides, count, modifier: mod });
-  });
-}
-function rollCustom() {
-  const sides = parseInt(prompt('Quantos lados? (ex: 20)'));
-  if (!sides || sides < 2) return;
-  rollDice(sides);
-}
-
-// Handler global de dado — garante apenas um ativo por vez
-let _diceHandler = null;
-let _diceSettled = true;
-
-function showDice3D(sides, callback) {
-  const overlay = document.getElementById('dice-overlay');
-  const cube = document.getElementById('dice-3d-cube');
-  const result = document.getElementById('dice-result-display');
-
-  // Cancela qualquer rolagem anterior ainda em andamento
-  if (_diceHandler) {
-    socket.off('new_message', _diceHandler);
-    _diceHandler = null;
-  }
-  _diceSettled = false;
-
-  const colors = {4:'#9C27B0',6:'#2196F3',8:'#4CAF50',10:'#FF9800',12:'#00BCD4',20:'#e94560',100:'#607D8B'};
-  const col = colors[sides] || '#e94560';
-  const label = sides === 100 ? 'd%' : `d${sides}`;
-
-  document.querySelectorAll('.face').forEach(f => {
-    f.style.borderColor = col + 'aa';
-    f.style.background = 'rgba(8,4,12,0.95)';
-    f.innerHTML = `<span style="color:${col};font-size:1.2rem;font-weight:900;text-shadow:0 0 12px ${col}">${label}</span>`;
-  });
-  document.getElementById('dice-3d-scene').style.filter = `drop-shadow(0 0 24px ${col})`;
-
-  result.innerHTML = '';
-  overlay.classList.remove('hidden');
-
-  // Reinicia animação CSS forçando reflow
-  cube.style.animation = 'none';
-  void cube.offsetHeight;
-  cube.style.animation = 'diceRoll 1.4s cubic-bezier(0.23,1,0.32,1) forwards';
-
-  const handler = (msg) => {
-    if (msg.type !== 'roll') return;
-    if (_diceSettled) return;
-    _diceSettled = true;
-    socket.off('new_message', handler);
-    _diceHandler = null;
-
-    const match = msg.text.match(/\*\*(\d+)\*\*/);
-    const valor = match ? match[1] : '?';
-    result.innerHTML = `
-      <div style="font-size:0.9rem;color:#aaa;letter-spacing:1px;margin-bottom:8px">${escHtml(msg.author)} · ${label}</div>
-      <div style="font-size:5rem;font-weight:900;color:#fff;text-shadow:0 0 40px ${col},0 0 80px ${col};line-height:1">${valor}</div>`;
-    setTimeout(() => { overlay.classList.add('hidden'); }, 2800);
-  };
-
-  _diceHandler = handler;
-  socket.on('new_message', handler);
-
-  if (callback) callback();
-
-  // Fallback: fecha em 7s se não chegar resposta
-  setTimeout(() => {
-    if (!_diceSettled) {
-      _diceSettled = true;
-      socket.off('new_message', handler);
-      _diceHandler = null;
-      overlay.classList.add('hidden');
-    }
-  }, 7000);
-}
-
-// renderMessage mantido apenas para compatibilidade — redireciona para fchat
-function renderMessage(msg) {
-  renderFChatMessage(msg);
-  if (msg.type === 'roll') renderDiceHistory(msg);
-}
-
-// Histórico de rolagens no sidebar
-function renderDiceHistory(msg) {
-  const container = document.getElementById('dice-history');
-  if (!container) return;
-  const el = document.createElement('div');
-  el.className = 'msg msg-roll';
-  const rendered = msg.text.replace(/\*\*(.+?)\*\*/g, '<span class="roll-total">$1</span>');
-  el.innerHTML = `<span class="author">${escHtml(msg.author)}</span>${rendered}`;
-  container.appendChild(el);
-  container.scrollTop = container.scrollHeight;
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ===================== JOGADORES =====================
 function renderPlayers() {
   const el = document.getElementById('players-list');
   if (!el) return;
   el.innerHTML = '';
   for (const [sid, p] of Object.entries(players)) {
+    const color = playerColor(sid);
     const v = p.vitals || {};
-    const vidaRatio  = v.vida_max  ? Math.min(1, Math.max(0, (v.vida     || 0) / v.vida_max))  : 0;
-    const sanRatio   = v.sanidade_max ? Math.min(1, Math.max(0, (v.sanidade || 0) / v.sanidade_max)) : 0;
-    const enRatio    = v.energia_max  ? Math.min(1, Math.max(0, (v.energia  || 0) / v.energia_max))  : 0;
-
-    const initial = (p.name || '?')[0].toUpperCase();
-    const avatarHtml = (v.avatar || p.avatar)
-      ? `<img src="${v.avatar || p.avatar}" alt="">`
-      : `<span>${initial}</span>`;
-
-    const isMine = (sid === socket.id);
-    const canEdit = isMine || isGM;
-    const disabled = canEdit ? '' : 'disabled';
-
+    const vidaPct  = v.vida_max  ? Math.min(100, Math.round((v.vida  || 0) / v.vida_max  * 100)) : 0;
+    const sanPct   = v.sanidade_max ? Math.min(100, Math.round((v.sanidade || 0) / v.sanidade_max * 100)) : 0;
+    const enPct    = v.energia_max  ? Math.min(100, Math.round((v.energia  || 0) / v.energia_max  * 100)) : 0;
+    const hasVitals = v.vida_max || v.sanidade_max || v.energia_max;
+    const avatarHtml = v.avatar
+      ? `<img src="${v.avatar}" alt="">`
+      : `<span>${(p.name || '?')[0].toUpperCase()}</span>`;
+    const gmBadge = p.is_gm ? '<span class="pc-gm-badge">GM</span>' : '';
+    const charName = v.char_name ? `<div class="pc-char">${v.char_name}</div>` : '';
+    const vitalsHtml = hasVitals ? `
+      <div class="pc-vitals">
+        <div class="pc-bar-row"><span class="pc-bar-icon">❤️</span><div class="pc-bar-wrap"><div class="pc-bar-fill vida" style="width:${vidaPct}%"></div></div><span class="pc-bar-val">${v.vida||0}/${v.vida_max||0}</span></div>
+        <div class="pc-bar-row"><span class="pc-bar-icon">🧠</span><div class="pc-bar-wrap"><div class="pc-bar-fill sanidade" style="width:${sanPct}%"></div></div><span class="pc-bar-val">${v.sanidade||0}/${v.sanidade_max||0}</span></div>
+        <div class="pc-bar-row"><span class="pc-bar-icon">⚡</span><div class="pc-bar-wrap"><div class="pc-bar-fill energia" style="width:${enPct}%"></div></div><span class="pc-bar-val">${v.energia||0}/${v.energia_max||0}</span></div>
+      </div>` : '';
+    const actionsHtml = isGM && !p.is_gm ? `
+      <div class="pc-actions">
+        <button class="pc-action-btn" onclick="requestPlayerSheet('${sid}')">📋 Ficha</button>
+        <button class="pc-action-btn" onclick="editPlayerVitals('${sid}')">✏️ Vitais</button>
+      </div>` : '';
     const card = document.createElement('div');
-    card.className = 'player-card' + (p.is_gm ? ' player-card-gm' : '');
+    card.className = 'player-card';
     card.dataset.sid = sid;
     card.innerHTML = `
-      <div class="player-card-header">
-        <div class="player-avatar-img">${avatarHtml}</div>
-        <div class="player-card-info">
-          <div class="player-card-name">${escHtml(v.char_name || p.name)}</div>
-          <div class="player-card-role">${p.is_gm ? '👑 Mestre' : '⚔️ ' + escHtml(p.name)}</div>
+      <div class="pc-header">
+        <div class="pc-avatar" style="background:${color}">${avatarHtml}</div>
+        <div class="pc-info">
+          <div class="pc-name">${p.name}</div>
+          ${charName}
         </div>
+        ${gmBadge}
       </div>
-      <div class="player-vitals">
-        <div class="vital-row">
-          <span class="vital-label" style="color:#e94560">❤️</span>
-          <div class="vital-bar-wrap"><div class="vital-bar vida" style="width:${vidaRatio*100}%"></div></div>
-          <div class="vital-inputs">
-            <input class="vital-input" type="number" value="${v.vida||''}" placeholder="—" ${disabled} onchange="updateVital('${sid}','vida',this.value)">
-            <span class="vital-sep">/</span>
-            <input class="vital-input" type="number" value="${v.vida_max||''}" placeholder="—" ${disabled} onchange="updateVital('${sid}','vida_max',this.value)">
-          </div>
-        </div>
-        <div class="vital-row">
-          <span class="vital-label" style="color:#7ab3ff">🧠</span>
-          <div class="vital-bar-wrap"><div class="vital-bar sanidade" style="width:${sanRatio*100}%"></div></div>
-          <div class="vital-inputs">
-            <input class="vital-input" type="number" value="${v.sanidade||''}" placeholder="—" ${disabled} onchange="updateVital('${sid}','sanidade',this.value)">
-            <span class="vital-sep">/</span>
-            <input class="vital-input" type="number" value="${v.sanidade_max||''}" placeholder="—" ${disabled} onchange="updateVital('${sid}','sanidade_max',this.value)">
-          </div>
-        </div>
-        <div class="vital-row">
-          <span class="vital-label" style="color:#f5c518">⚡</span>
-          <div class="vital-bar-wrap"><div class="vital-bar energia" style="width:${enRatio*100}%"></div></div>
-          <div class="vital-inputs">
-            <input class="vital-input" type="number" value="${v.energia||''}" placeholder="—" ${disabled} onchange="updateVital('${sid}','energia',this.value)">
-            <span class="vital-sep">/</span>
-            <input class="vital-input" type="number" value="${v.energia_max||''}" placeholder="—" ${disabled} onchange="updateVital('${sid}','energia_max',this.value)">
-          </div>
-        </div>
-      </div>
-      ${isGM && !p.is_gm ? `
-      <div class="player-card-actions">
-        <button class="player-action-btn" onclick="requestPlayerSheet('${sid}')">📋 Ver Ficha</button>
-      </div>` : ''}`;
+      ${vitalsHtml}
+      ${actionsHtml}`;
     el.appendChild(card);
   }
 }
 
-function updateVital(sid, field, value) {
-  if (!players[sid]) return;
-  const vitals = { ...(players[sid].vitals || {}) };
-  vitals[field] = parseInt(value) || 0;
-  players[sid].vitals = vitals;
-  socket.emit('update_vitals', { room_id: ROOM_ID, target_sid: sid, vitals });
-  renderPlayers();
-}
-
-function requestPlayerSheet(sid) {
-  socket.emit('request_player_sheet', { room_id: ROOM_ID, target_sid: sid });
-}
-
-function openGMSheet(sid, sheet) {
-  const p = players[sid] || {};
-  document.getElementById('gm-sheet-title').textContent = `📋 Ficha: ${sheet.name || p.name || 'Jogador'}`;
-  const content = document.getElementById('gm-sheet-content');
-
-  const cls = ['sentitivo','possuido','feiticeiro','santificado'].filter(c => sheet[`cls-${c}`]).join(', ') || '—';
-  const attrs = [
-    ['Força', sheet.forca], ['Agilidade', sheet.agilidade], ['Inteligência', sheet.inteligencia],
-    ['Mental', sheet.mental], ['Lábia', sheet.labia], ['Furtividade', sheet.furtividade], ['Defesa', sheet.defesa]
-  ];
-  const pers = [
-    ['Investigação', sheet.investigacao], ['Sobrevivência', sheet.sobrevivencia], ['Ocultismo', sheet.ocultismo],
-    ['Religião', sheet.religiao], ['Medicina', sheet.medicina], ['Intuição', sheet.intuicao]
-  ];
-
-  content.innerHTML = `
-    <div class="gm-sheet-section">
-      <h4>Dados</h4>
-      <div style="font-size:0.85rem;line-height:1.7;color:#ccc">
-        <div><b>Classe:</b> ${escHtml(cls)}</div>
-        <div><b>Nível:</b> ${escHtml(sheet.nivel||'1')} &nbsp; <b>XP:</b> ${escHtml(sheet.xp||'0')}</div>
-        <div><b>Idade:</b> ${escHtml(sheet.age||'—')} &nbsp; <b>Altura:</b> ${escHtml(sheet.height||'—')} &nbsp; <b>Peso:</b> ${escHtml(sheet.weight||'—')}</div>
-      </div>
-    </div>
-    <div class="gm-sheet-section">
-      <h4>Recursos</h4>
-      <div class="gm-vitals-row">
-        <div class="gm-vital-box vida"><div class="label">VIDA</div><div class="value">${sheet.vida||0}/${sheet['vida-max']||60}</div></div>
-        <div class="gm-vital-box san"><div class="label">SANIDADE</div><div class="value">${sheet.sanidade||0}/${sheet['sanidade-max']||50}</div></div>
-        <div class="gm-vital-box en"><div class="label">ENERGIA</div><div class="value">${sheet.energia||0}/${sheet['energia-max']||50}</div></div>
-      </div>
-    </div>
-    <div class="gm-sheet-section">
-      <h4>Atributos</h4>
-      <div class="gm-attr-grid">${attrs.map(([n,v]) => `<div class="gm-attr-item"><strong>${n}</strong><span>${v||0}</span></div>`).join('')}</div>
-    </div>
-    <div class="gm-sheet-section">
-      <h4>Perícias</h4>
-      <div class="gm-attr-grid">${pers.map(([n,v]) => `<div class="gm-attr-item"><strong>${n}</strong><span>${v||0}</span></div>`).join('')}</div>
-    </div>
-    ${sheet.personalidade ? `<div class="gm-sheet-section"><h4>Personalidade</h4><p style="font-size:0.82rem;color:#bbb">${escHtml(sheet.personalidade)}</p></div>` : ''}
-    ${sheet.historia ? `<div class="gm-sheet-section"><h4>História</h4><p style="font-size:0.82rem;color:#bbb">${escHtml(sheet.historia)}</p></div>` : ''}
-    ${sheet.anotacoes ? `<div class="gm-sheet-section"><h4>Anotações</h4><p style="font-size:0.82rem;color:#bbb">${escHtml(sheet.anotacoes)}</p></div>` : ''}
-  `;
-  document.getElementById('modal-gm-sheet').classList.remove('hidden');
-}
-
-// ===================== FICHAS =====================
-let sheetData = JSON.parse(localStorage.getItem('rpg_sheet_v2') || '{}');
-
-const SHEET_SIMPLE_FIELDS = [
-  'name','age','height','weight',
-  'forca','agilidade','inteligencia','mental','labia','furtividade','defesa',
-  'investigacao','sobrevivencia','ocultismo','religiao','medicina','intuicao',
-  'vida','vida-max','sanidade','sanidade-max','energia','energia-max',
-  'equipamentos','personalidade','nao-pode','mais-ama','mais-odeia','mais-teme',
-  'historia','anotacoes','xp','nivel'
-];
-const SHEET_CLASSES = ['sentitivo','possuido','feiticeiro','santificado'];
-
-function openSheet() {
-  // Campos simples
-  for (const f of SHEET_SIMPLE_FIELDS) {
-    const el = document.getElementById(`sh-${f}`);
-    if (el) el.value = sheetData[f] ?? '';
-  }
-  // Checkboxes de classe
-  for (const c of SHEET_CLASSES) {
-    const el = document.getElementById(`sh-cls-${c}`);
-    if (el) el.checked = !!sheetData[`cls-${c}`];
-  }
-  // Avatar
-  if (sheetData.avatar) {
-    const img = document.getElementById('sh-avatar');
-    img.src = sheetData.avatar;
-    img.style.display = 'block';
-    img.style.transformOrigin = '0 0';
-    avatarScale = sheetData.avatarScale || 1;
-    avatarX = sheetData.avatarX || 0;
-    avatarY = sheetData.avatarY || 0;
-    applyAvatarTransform();
-    document.getElementById('sh-avatar-placeholder').style.display = 'none';
-    document.getElementById('sh-avatar-controls').style.display = 'flex';
-    document.getElementById('sh-avatar-slot').onclick = null;
+function updateNavAvatar() {
+  const el = document.getElementById('nav-avatar');
+  if (!el) return;
+  const mySid = socket.id;
+  const me = players[mySid];
+  if (me?.vitals?.avatar) {
+    el.innerHTML = `<img src="${me.vitals.avatar}" alt="">`;
   } else {
-    document.getElementById('sh-avatar-slot').onclick = () => document.getElementById('sh-img-upload').click();
+    el.textContent = (playerName || '?')[0].toUpperCase();
   }
-  initAvatarDrag();
-  // Inventário
-  renderInventory(sheetData.inventory || []);
-  // Habilidades
-  renderHabilidades(sheetData.habilidades || []);
-  // Máximos (só GM edita)
-  const attrMax = document.getElementById('sh-attr-max');
-  if (attrMax) attrMax.value = sheetData['attr-max'] ?? 16;
-  const perMax = document.getElementById('sh-per-max');
-  if (perMax) perMax.value = sheetData['per-max'] ?? 7;
-
-  // Atualiza contadores e hint
-  updateAttrPoints(); updateAttrHint();
-  updatePerPoints(); updatePerHint();
-
-  // Restrições de GM
-  applyGMRestrictions();
-
-  document.getElementById('modal-sheet').classList.remove('hidden');
-}
-
-function saveSheet() {
-  for (const f of SHEET_SIMPLE_FIELDS) {
-    const el = document.getElementById(`sh-${f}`);
-    if (el) sheetData[f] = el.value;
-  }
-  for (const c of SHEET_CLASSES) {
-    const el = document.getElementById(`sh-cls-${c}`);
-    if (el) sheetData[`cls-${c}`] = el.checked;
-  }
-  // Inventário
-  sheetData.inventory = [];
-  document.querySelectorAll('.sheet-inv-input').forEach(el => {
-    sheetData.inventory.push(el.value);
-  });
-  // Habilidades
-  sheetData.habilidades = [];
-  document.querySelectorAll('.sheet-hab-item').forEach(el => {
-    const nome = el.querySelector('input')?.value || '';
-    const desc = el.querySelector('textarea')?.value || '';
-    sheetData.habilidades.push({ nome, desc });
-  });
-
-  sheetData['attr-max'] = parseInt(document.getElementById('sh-attr-max')?.value) || 16;
-  sheetData['per-max'] = parseInt(document.getElementById('sh-per-max')?.value) || 7;
-  sheetData.avatarScale = avatarScale;
-  sheetData.avatarX = avatarX;
-  sheetData.avatarY = avatarY;
-  localStorage.setItem('rpg_sheet_v2', JSON.stringify(sheetData));
-
-  // Cacheia vitals para uso próprio no card de jogadores
-  sheetData._vitals_cache = {
-    vida: sheetData.vida, vida_max: sheetData['vida-max'],
-    sanidade: sheetData.sanidade, sanidade_max: sheetData['sanidade-max'],
-    energia: sheetData.energia, energia_max: sheetData['energia-max'],
-    avatar: sheetData.avatar, char_name: sheetData.name
-  };
-  localStorage.setItem('rpg_sheet_v2', JSON.stringify(sheetData));
-
-  // Atualiza o próprio card imediatamente
-  if (players[socket.id]) {
-    players[socket.id].vitals = sheetData._vitals_cache;
-    players[socket.id].avatar = sheetData.avatar;
-    players[socket.id].char_name = sheetData.name;
-  }
-  renderPlayers();
-
-  // Compartilha vitals + avatar com a sala
-  socket.emit('share_sheet', { room_id: ROOM_ID, sheet: sheetData });
-  closeModal('modal-sheet');
-
-  // Notifica no chat local
-  const msg = { type: 'system', text: `${playerName} salvou a ficha de personagem.`, id: 'local' };
-  renderMessage(msg);
-}
-
-// Contador de pontos de atributos
-function updateAttrPoints() {
-  const attrs = ['forca','agilidade','inteligencia','mental','labia','furtividade','defesa'];
-  let total = 0;
-  for (const a of attrs) {
-    const el = document.getElementById(`sh-${a}`);
-    if (el) total += parseInt(el.value) || 0;
-  }
-  const max = parseInt(document.getElementById('sh-attr-max')?.value) || 16;
-  const el = document.getElementById('sh-attr-used');
-  if (el) {
-    el.textContent = total;
-    el.style.color = total > max ? '#e94560' : '#d4a060';
-  }
-}
-
-function updateAttrHint() {
-  const max = parseInt(document.getElementById('sh-attr-max')?.value) || 16;
-  const el = document.getElementById('sh-attr-hint-text');
-  if (el) el.textContent = `${max} pontos para distribuir`;
-}
-
-// Contador de pontos de perícias
-function updatePerPoints() {
-  const pers = ['investigacao','sobrevivencia','ocultismo','religiao','medicina','intuicao'];
-  let total = 0;
-  for (const p of pers) {
-    const el = document.getElementById(`sh-${p}`);
-    if (el) total += parseInt(el.value) || 0;
-  }
-  const max = parseInt(document.getElementById('sh-per-max')?.value) || 7;
-  const el = document.getElementById('sh-per-used');
-  if (el) {
-    el.textContent = total;
-    el.style.color = total > max ? '#e94560' : '#d4a060';
-  }
-}
-
-function updatePerHint() {
-  const max = parseInt(document.getElementById('sh-per-max')?.value) || 7;
-  const el = document.getElementById('sh-per-hint-text');
-  if (el) el.textContent = `${max} pontos para distribuir`;
-}
-
-function applyGMRestrictions() {
-  document.querySelectorAll('.gm-only').forEach(el => {
-    if (!isGM) {
-      el.disabled = true;
-      el.title = 'Apenas o Mestre pode editar';
+  for (const [sid, _p] of Object.entries(players)) {
+    if (_p.token === SESSION_TOKEN || sid === socket.id) {
+      el.style.background = playerColor(sid);
+      break;
     }
-  });
+  }
 }
 
-// Inventário dinâmico
-function renderInventory(items) {
-  const list = document.getElementById('sh-inventory-list');
+// ===================== VIEW SWITCHING =====================
+function switchView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-btn[data-view]').forEach(b => b.classList.remove('active'));
+  const view = document.getElementById('view-' + name);
+  if (view) view.classList.add('active');
+  const btn = document.querySelector(`.nav-btn[data-view="${name}"]`);
+  if (btn) btn.classList.add('active');
+  const mapToolbar = document.getElementById('map-toolbar');
+  if (mapToolbar) mapToolbar.style.display = name === 'map' ? 'flex' : 'none';
+  if (name === 'map') initMap();
+}
+
+// ===================== CHAT =====================
+document.getElementById('room-id-display').textContent = ROOM_ID;
+
+socket.on('room_state', (data) => {
+  for (const msg of (data.messages || [])) appendMessage(msg);
+  if (data.map) applyMapState(data.map);
+  if (data.tokens) {
+    for (const tok of Object.values(data.tokens)) spawnToken(tok);
+  }
+});
+
+let _msgHandler = null;
+if (_msgHandler) socket.off('new_message', _msgHandler);
+_msgHandler = (msg) => {
+  appendMessage(msg);
+  if (msg.type === 'roll') showDice3D(msg.total, msg.rolls?.[0] || msg.total, msg.author);
+  if (msg.type === 'roll') addDiceHistory(msg);
+};
+socket.on('new_message', _msgHandler);
+
+function appendMessage(msg) {
+  const list = document.getElementById('messages-list');
   if (!list) return;
-  list.innerHTML = '';
-  const count = Math.max(10, items.length + 1);
-  for (let i = 0; i < count; i++) {
-    const row = document.createElement('div');
-    row.className = 'sheet-inv-item';
+  if (msg.type === 'system') {
+    const el = document.createElement('div');
+    el.className = 'msg-system';
+    el.textContent = msg.text;
+    list.appendChild(el);
+    scrollMessages();
+    return;
+  }
+  const row = document.createElement('div');
+  const authorColor = getAuthorColor(msg.author);
+  const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  if (msg.type === 'roll') {
+    const boldText = msg.text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    row.className = 'msg-row msg-roll';
     row.innerHTML = `
-      <span class="sheet-inv-num">${i + 1}</span>
-      <input class="sheet-inv-input" type="text" value="${escHtml(items[i] || '')}" placeholder="—">
-      <button class="sheet-inv-del" onclick="removeInvItem(this)" title="Remover">✕</button>`;
-    list.appendChild(row);
-  }
-}
-
-function removeInvItem(btn) {
-  const row = btn.closest('.sheet-inv-item');
-  if (document.querySelectorAll('.sheet-inv-item').length > 5) {
-    row.remove();
-    // Re-numera
-    document.querySelectorAll('.sheet-inv-num').forEach((el, i) => { el.textContent = i + 1; });
+      <div class="msg-avatar" style="background:${authorColor}">${(msg.author||'?')[0].toUpperCase()}</div>
+      <div class="msg-content">
+        <div class="msg-header">
+          <span class="msg-author" style="color:${authorColor}">${msg.author}</span>
+          <span class="msg-time">${time}</span>
+        </div>
+        <div class="msg-body">${boldText}</div>
+      </div>`;
+  } else if (msg.type === 'file') {
+    const isImg = msg.filetype && msg.filetype.startsWith('image/');
+    const bodyHtml = isImg
+      ? `<img src="${msg.filedata}" class="msg-img" alt="${msg.filename}" onclick="window.open(this.src)">`
+      : `<a class="msg-file-link" href="${msg.filedata}" download="${msg.filename}">📎 ${msg.filename}</a>`;
+    row.className = 'msg-row';
+    row.innerHTML = `
+      <div class="msg-avatar" style="background:${authorColor}">${(msg.author||'?')[0].toUpperCase()}</div>
+      <div class="msg-content">
+        <div class="msg-header">
+          <span class="msg-author" style="color:${authorColor}">${msg.author}</span>
+          <span class="msg-time">${time}</span>
+        </div>
+        <div class="msg-body">${bodyHtml}</div>
+      </div>`;
   } else {
-    row.querySelector('.sheet-inv-input').value = '';
+    row.className = 'msg-row';
+    const safeText = (msg.text || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    row.innerHTML = `
+      <div class="msg-avatar" style="background:${authorColor}">${(msg.author||'?')[0].toUpperCase()}</div>
+      <div class="msg-content">
+        <div class="msg-header">
+          <span class="msg-author" style="color:${authorColor}">${msg.author}</span>
+          <span class="msg-time">${time}</span>
+        </div>
+        <div class="msg-body">${safeText}</div>
+      </div>`;
   }
+  list.appendChild(row);
+  scrollMessages();
 }
 
-// Habilidades dinâmicas
-function renderHabilidades(habs) {
-  const list = document.getElementById('sh-habilidades-list');
-  if (!list) return;
-  list.innerHTML = '';
-  for (const h of habs) addHabilidadeItem(h.nome, h.desc);
-  if (habs.length === 0) addHabilidadeItem('', '');
-}
-
-function addHabilidade() { addHabilidadeItem('', ''); }
-
-function addHabilidadeItem(nome, desc) {
-  const list = document.getElementById('sh-habilidades-list');
-  const item = document.createElement('div');
-  item.className = 'sheet-hab-item';
-  item.innerHTML = `
-    <button class="sheet-hab-del" onclick="this.closest('.sheet-hab-item').remove()" title="Remover">✕</button>
-    <input type="text" placeholder="Nome da habilidade" value="${escHtml(nome)}">
-    <textarea placeholder="Descrição, custo, efeito..." rows="2">${escHtml(desc)}</textarea>`;
-  list.appendChild(item);
-  item.querySelector('input').focus();
-}
-
-// ===================== AVATAR ZOOM/PAN =====================
-let avatarScale = 1;
-let avatarX = 0;
-let avatarY = 0;
-let avatarDragging = false;
-let avatarDragStartX = 0;
-let avatarDragStartY = 0;
-let avatarOriginX = 0;
-let avatarOriginY = 0;
-
-function applyAvatarTransform() {
-  const img = document.getElementById('sh-avatar');
-  if (img) img.style.transform = `translate(${avatarX}px, ${avatarY}px) scale(${avatarScale})`;
-}
-
-function avatarZoom(delta) {
-  avatarScale = Math.max(0.2, Math.min(5, avatarScale + delta));
-  applyAvatarTransform();
-  sheetData.avatarScale = avatarScale;
-  sheetData.avatarX = avatarX;
-  sheetData.avatarY = avatarY;
-}
-
-function resetAvatar() {
-  avatarScale = 1; avatarX = 0; avatarY = 0;
-  applyAvatarTransform();
-}
-
-function initAvatarDrag() {
-  const viewport = document.getElementById('sh-avatar-viewport');
-  if (!viewport) return;
-
-  viewport.addEventListener('mousedown', (e) => {
-    const img = document.getElementById('sh-avatar');
-    if (!img || img.style.display === 'none') return;
-    e.preventDefault();
-    avatarDragging = true;
-    avatarDragStartX = e.clientX;
-    avatarDragStartY = e.clientY;
-    avatarOriginX = avatarX;
-    avatarOriginY = avatarY;
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!avatarDragging) return;
-    avatarX = avatarOriginX + (e.clientX - avatarDragStartX);
-    avatarY = avatarOriginY + (e.clientY - avatarDragStartY);
-    applyAvatarTransform();
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (avatarDragging) {
-      avatarDragging = false;
-      sheetData.avatarX = avatarX;
-      sheetData.avatarY = avatarY;
-    }
-  });
-
-  viewport.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const img = document.getElementById('sh-avatar');
-    if (!img || img.style.display === 'none') return;
-    avatarZoom(e.deltaY < 0 ? 0.1 : -0.1);
-  }, { passive: false });
-
-  // Touch support
-  let lastTouchDist = null;
-  viewport.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 1) {
-      avatarDragging = true;
-      avatarDragStartX = e.touches[0].clientX;
-      avatarDragStartY = e.touches[0].clientY;
-      avatarOriginX = avatarX;
-      avatarOriginY = avatarY;
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      lastTouchDist = Math.hypot(dx, dy);
-    }
-  }, { passive: true });
-
-  viewport.addEventListener('touchmove', (e) => {
-    if (e.touches.length === 1 && avatarDragging) {
-      avatarX = avatarOriginX + (e.touches[0].clientX - avatarDragStartX);
-      avatarY = avatarOriginY + (e.touches[0].clientY - avatarDragStartY);
-      applyAvatarTransform();
-    } else if (e.touches.length === 2 && lastTouchDist) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.hypot(dx, dy);
-      avatarZoom((dist - lastTouchDist) * 0.005);
-      lastTouchDist = dist;
-    }
-  }, { passive: true });
-
-  viewport.addEventListener('touchend', () => { avatarDragging = false; lastTouchDist = null; });
-}
-
-// Chama init quando o modal abre
-const _origOpenSheet = openSheet;
-
-function loadSheetAvatar(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    sheetData.avatar = e.target.result;
-    avatarScale = 1; avatarX = 0; avatarY = 0;
-    const img = document.getElementById('sh-avatar');
-    img.src = e.target.result;
-    img.style.display = 'block';
-    img.style.transformOrigin = '0 0';
-    applyAvatarTransform();
-    document.getElementById('sh-avatar-placeholder').style.display = 'none';
-    document.getElementById('sh-avatar-controls').style.display = 'flex';
-    // Clique no slot sem imagem vai pro upload; com imagem não faz nada
-    document.getElementById('sh-avatar-slot').onclick = null;
-  };
-  reader.readAsDataURL(file);
-}
-
-// ===================== MAPA =====================
-function uploadMapBg(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const dataUrl = e.target.result;
-    loadBgFromUrl(dataUrl);
-    mapState.background = dataUrl;
-    socket.emit('map_update', { room_id: ROOM_ID, map: { background: dataUrl } });
-  };
-  reader.readAsDataURL(file);
-}
-
-function loadBgFromUrl(url) {
-  const img = new Image();
-  img.onload = () => { bgImage = img; redraw(); };
-  img.src = url;
-}
-
-// ===================== TABS =====================
-function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach((t, i) => {
-    const tabs = ['dice', 'players'];
-    t.classList.toggle('active', tabs[i] === tab);
-  });
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  const el = document.getElementById(`tab-${tab}`);
-  if (el) el.classList.add('active');
-}
-
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-
-function copyRoomLink() {
-  navigator.clipboard.writeText(window.location.href);
-  const btn = document.querySelector('.share-btn');
-  const orig = btn.textContent;
-  btn.textContent = '✓ Copiado!';
-  setTimeout(() => btn.textContent = orig, 2000);
-}
-
-function syncGridPanel(map) {
-  const sz = document.getElementById('grid-size-slider');
-  if (sz && map.grid_size) { sz.value = map.grid_size; document.getElementById('grid-size-val').textContent = map.grid_size + 'px'; }
-  const gc = document.getElementById('grid-color');
-  if (gc && map.grid_color) gc.value = map.grid_color;
-  const go = document.getElementById('grid-opacity');
-  if (go && map.grid_opacity !== undefined) { go.value = Math.round(map.grid_opacity * 100); document.getElementById('grid-opacity-val').textContent = Math.round(map.grid_opacity * 100) + '%'; }
-  const gv = document.getElementById('grid-visible');
-  if (gv && map.show_grid !== undefined) gv.checked = map.show_grid;
-  const gs = document.getElementById('grid-snap');
-  if (gs && map.snap !== undefined) gs.checked = map.snap;
-}
-
-// ===================== GRADE =====================
-function toggleGridPanel() {
-  document.getElementById('grid-panel').classList.toggle('hidden');
-}
-function updateGridSize(v) {
-  mapState.grid_size = parseInt(v);
-  document.getElementById('grid-size-val').textContent = v + 'px';
-  socket.emit('map_update', { room_id: ROOM_ID, map: { grid_size: parseInt(v) } });
-  redraw();
-}
-function updateGridColor(v) {
-  mapState.grid_color = v;
-  socket.emit('map_update', { room_id: ROOM_ID, map: { grid_color: v } });
-  redraw();
-}
-function updateGridOpacity(v) {
-  mapState.grid_opacity = parseInt(v) / 100;
-  document.getElementById('grid-opacity-val').textContent = v + '%';
-  socket.emit('map_update', { room_id: ROOM_ID, map: { grid_opacity: mapState.grid_opacity } });
-  redraw();
-}
-function setGridType(type, btn) {
-  mapState.grid_type = type;
-  document.querySelectorAll('[id^=grid-type-]').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  socket.emit('map_update', { room_id: ROOM_ID, map: { grid_type: type } });
-  redraw();
-}
-function toggleSnap(v) { mapState.snap = v; }
-function setGridVisible(v) {
-  mapState.show_grid = v;
-  socket.emit('map_update', { room_id: ROOM_ID, map: { show_grid: v } });
-  redraw();
-}
-function clearMapBg() {
-  if (!confirm('Limpar imagem de fundo do mapa?')) return;
-  bgImage = null;
-  mapState.background = null;
-  socket.emit('map_update', { room_id: ROOM_ID, map: { background: null } });
-  redraw();
-}
-
-// ===================== CHAT FLUTUANTE =====================
-function toggleFloatingChat() {
-  const fc = document.getElementById('floating-chat');
-  fc.classList.toggle('hidden');
-  if (!fc.classList.contains('hidden')) {
-    document.getElementById('fchat-input').focus();
+function getAuthorColor(author) {
+  for (const [sid, p] of Object.entries(players)) {
+    if (p.name === author) return playerColor(sid);
   }
+  let hash = 0;
+  for (let i = 0; i < (author||'').length; i++) hash = author.charCodeAt(i) + ((hash << 5) - hash);
+  return PLAYER_COLORS[Math.abs(hash) % PLAYER_COLORS.length];
 }
-function sendFChat() {
-  const input = document.getElementById('fchat-input');
-  const text = input.value.trim();
+
+function scrollMessages() {
+  const area = document.getElementById('messages-area');
+  if (area) area.scrollTop = area.scrollHeight;
+}
+
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = (input.value || '').trim();
   if (!text) return;
   socket.emit('chat_message', { room_id: ROOM_ID, text });
   input.value = '';
 }
-function fchatKeydown(e) { if (e.key === 'Enter') sendFChat(); }
 
-function renderFChatMessage(msg) {
-  const container = document.getElementById('fchat-messages');
-  if (!container) return;
-  const el = document.createElement('div');
-  if (msg.type === 'system') {
-    el.className = 'msg msg-system';
-    el.textContent = msg.text;
-  } else if (msg.type === 'chat') {
-    el.className = 'msg msg-chat';
-    el.innerHTML = `<span class="author">${escHtml(msg.author)}</span>${escHtml(msg.text)}`;
-  } else if (msg.type === 'roll') {
-    el.className = 'msg msg-roll';
-    const rendered = msg.text.replace(/\*\*(.+?)\*\*/g, '<span class="roll-total">$1</span>');
-    el.innerHTML = `<span class="author">${escHtml(msg.author)}</span>${rendered}`;
-  } else if (msg.type === 'file') {
-    el.className = 'msg msg-chat';
-    const isImg = msg.filetype && msg.filetype.startsWith('image/');
-    el.innerHTML = `<span class="author">${escHtml(msg.author)}</span>` + (
-      isImg
-        ? `<br><img class="msg-image" src="${msg.filedata}" alt="${escHtml(msg.filename)}" onclick="window.open(this.src)">`
-        : `<br><a class="msg-file-link" href="${msg.filedata}" download="${escHtml(msg.filename)}">📎 ${escHtml(msg.filename)}</a>`
-    );
-  }
-  container.appendChild(el);
-  container.scrollTop = container.scrollHeight;
+function chatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 }
 
 function sendFile(event) {
   const file = event.target.files[0];
   if (!file) return;
-  if (file.size > 5 * 1024 * 1024) { alert('Arquivo muito grande (máx 5MB)'); return; }
   const reader = new FileReader();
   reader.onload = (e) => {
     socket.emit('file_message', {
-      room_id: ROOM_ID,
-      filename: file.name,
-      filetype: file.type,
-      filedata: e.target.result
+      room_id: ROOM_ID, filename: file.name,
+      filetype: file.type, filedata: e.target.result
     });
   };
   reader.readAsDataURL(file);
   event.target.value = '';
 }
 
-// ===================== DRAG DE JANELA FLUTUANTE =====================
-function startDragWindow(e, id) {
-  const win = document.getElementById(id);
-  const startX = e.clientX - win.offsetLeft;
-  const startY = e.clientY - win.offsetTop;
-  win.style.right = 'auto';
-  win.style.bottom = 'auto';
-  function onMove(e) {
-    win.style.left = Math.max(0, e.clientX - startX) + 'px';
-    win.style.top  = Math.max(0, e.clientY - startY) + 'px';
-  }
-  function onUp() {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-  }
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
+function copyRoomLink() {
+  const url = window.location.href;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copiado!';
+    setTimeout(() => btn.textContent = orig, 2000);
+  });
 }
 
-// ===================== INIT =====================
-document.getElementById('room-id-display').textContent = ROOM_ID;
-document.getElementById('player-badge').textContent = (isGM ? '👑 ' : '') + playerName;
+// ===================== DICE =====================
+let _diceOverlayTimer = null;
 
-// Compartilha ficha salva ao entrar e atualiza próprio card
-setTimeout(() => {
-  const saved = JSON.parse(localStorage.getItem('rpg_sheet_v2') || '{}');
-  if (Object.keys(saved).length > 0) {
-    // Atualiza vitals do próprio card
-    const vc = saved._vitals_cache || {};
-    if (players[socket.id]) {
-      players[socket.id].vitals = vc;
-      players[socket.id].avatar = saved.avatar;
-      players[socket.id].char_name = saved.name;
-    }
-    renderPlayers();
-    socket.emit('share_sheet', { room_id: ROOM_ID, sheet: saved });
+function rollDice(sides) {
+  const count = parseInt(document.getElementById('dice-count').value) || 1;
+  const mod = parseInt(document.getElementById('dice-mod').value) || 0;
+  socket.emit('roll_dice', { room_id: ROOM_ID, dice: sides, count, modifier: mod });
+}
+
+function rollCustom() {
+  const sides = prompt('Quantas faces? (ex: 6, 12, 20)');
+  if (!sides || isNaN(sides)) return;
+  const count = parseInt(document.getElementById('dice-count').value) || 1;
+  const mod = parseInt(document.getElementById('dice-mod').value) || 0;
+  socket.emit('roll_dice', { room_id: ROOM_ID, dice: parseInt(sides), count, modifier: mod });
+}
+
+function showDice3D(total, firstRoll, author) {
+  const overlay = document.getElementById('dice-overlay');
+  const cube = document.getElementById('dice-3d-cube');
+  const resultEl = document.getElementById('dice-result-display');
+  if (!overlay) return;
+
+  overlay.classList.remove('hidden');
+  resultEl.textContent = '';
+  cube.classList.remove('rolling');
+
+  requestAnimationFrame(() => {
+    cube.classList.add('rolling');
+  });
+
+  if (_diceOverlayTimer) clearTimeout(_diceOverlayTimer);
+  _diceOverlayTimer = setTimeout(() => {
+    resultEl.textContent = total;
+    _diceOverlayTimer = setTimeout(() => {
+      overlay.classList.add('hidden');
+      cube.classList.remove('rolling');
+      _diceOverlayTimer = null;
+    }, 1800);
+  }, 850);
+}
+
+document.getElementById('dice-overlay').addEventListener('click', () => {
+  document.getElementById('dice-overlay').classList.add('hidden');
+  document.getElementById('dice-3d-cube').classList.remove('rolling');
+  if (_diceOverlayTimer) { clearTimeout(_diceOverlayTimer); _diceOverlayTimer = null; }
+});
+
+function addDiceHistory(msg) {
+  const hist = document.getElementById('dice-history');
+  if (!hist) return;
+  const entry = document.createElement('div');
+  entry.className = 'hist-entry';
+  const boldText = msg.text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  entry.innerHTML = `<strong>${msg.author}</strong> ${boldText}`;
+  hist.insertBefore(entry, hist.firstChild);
+  if (hist.children.length > 20) hist.lastChild.remove();
+}
+
+// ===================== MAPA =====================
+let mapCanvas, mapCtx;
+let mapState = { background: null, grid_size: 50, show_grid: true, grid_color: '#ffffff', grid_opacity: 0.15, grid_type: 'square', width: 3000, height: 2000 };
+let mapOffset = { x: 0, y: 0 }, mapZoom = 1;
+let mapBgImage = null;
+let isPanning = false, panStart = { x: 0, y: 0 };
+let currentTool = 'select';
+let tokens = {};
+let selectedTokenId = null;
+let draggingToken = null, dragOffX = 0, dragOffY = 0;
+let contextMenuToken = null;
+let snapToGrid = true;
+let mapInited = false;
+let measureStart = null, measureEnd = null;
+
+function initMap() {
+  if (mapInited) { resizeCanvas(); return; }
+  mapInited = true;
+  mapCanvas = document.getElementById('map-canvas');
+  mapCtx = mapCanvas.getContext('2d');
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  mapCanvas.addEventListener('mousedown', onMapMouseDown);
+  mapCanvas.addEventListener('mousemove', onMapMouseMove);
+  mapCanvas.addEventListener('mouseup', onMapMouseUp);
+  mapCanvas.addEventListener('wheel', onMapWheel, { passive: false });
+  mapCanvas.addEventListener('contextmenu', onMapContextMenu);
+  document.addEventListener('click', hideContextMenu);
+  drawMap();
+}
+
+function resizeCanvas() {
+  if (!mapCanvas) return;
+  const parent = mapCanvas.parentElement;
+  mapCanvas.width = parent.clientWidth;
+  mapCanvas.height = parent.clientHeight;
+  drawMap();
+}
+
+function drawMap() {
+  if (!mapCtx) return;
+  const W = mapCanvas.width, H = mapCanvas.height;
+  mapCtx.clearRect(0, 0, W, H);
+  mapCtx.save();
+  mapCtx.translate(mapOffset.x, mapOffset.y);
+  mapCtx.scale(mapZoom, mapZoom);
+
+  if (mapBgImage) {
+    mapCtx.drawImage(mapBgImage, 0, 0, mapState.width, mapState.height);
+  } else {
+    mapCtx.fillStyle = '#0a0a12';
+    mapCtx.fillRect(0, 0, mapState.width, mapState.height);
   }
-}, 1500);
+
+  if (mapState.show_grid) drawGrid();
+  if (currentTool === 'measure' && measureStart && measureEnd) drawMeasure();
+
+  mapCtx.restore();
+
+  for (const tok of Object.values(tokens)) drawToken(tok);
+}
+
+function drawGrid() {
+  const gs = mapState.grid_size;
+  const color = mapState.grid_color || '#ffffff';
+  const alpha = mapState.grid_opacity !== undefined ? mapState.grid_opacity : 0.15;
+  mapCtx.strokeStyle = color;
+  mapCtx.globalAlpha = alpha;
+  mapCtx.lineWidth = 0.5 / mapZoom;
+  if (mapState.grid_type === 'hex') {
+    drawHexGrid(gs);
+  } else {
+    for (let x = 0; x <= mapState.width; x += gs) {
+      mapCtx.beginPath(); mapCtx.moveTo(x, 0); mapCtx.lineTo(x, mapState.height); mapCtx.stroke();
+    }
+    for (let y = 0; y <= mapState.height; y += gs) {
+      mapCtx.beginPath(); mapCtx.moveTo(0, y); mapCtx.lineTo(mapState.width, y); mapCtx.stroke();
+    }
+  }
+  mapCtx.globalAlpha = 1;
+}
+
+function drawHexGrid(size) {
+  const w = size * 2, h = Math.sqrt(3) * size;
+  for (let row = 0; row * h < mapState.height + h; row++) {
+    for (let col = 0; col * w * 0.75 < mapState.width + w; col++) {
+      const cx = col * w * 0.75 + (row % 2 === 0 ? 0 : w * 0.375);
+      const cy = row * h / 2;
+      mapCtx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = Math.PI / 180 * (60 * i - 30);
+        const px = cx + size * Math.cos(angle), py = cy + size * Math.sin(angle);
+        i === 0 ? mapCtx.moveTo(px, py) : mapCtx.lineTo(px, py);
+      }
+      mapCtx.closePath(); mapCtx.stroke();
+    }
+  }
+}
+
+function drawMeasure() {
+  if (!measureStart || !measureEnd) return;
+  mapCtx.save();
+  mapCtx.strokeStyle = '#ff9800'; mapCtx.lineWidth = 2 / mapZoom; mapCtx.setLineDash([6, 4]);
+  mapCtx.beginPath(); mapCtx.moveTo(measureStart.x, measureStart.y); mapCtx.lineTo(measureEnd.x, measureEnd.y); mapCtx.stroke();
+  mapCtx.setLineDash([]);
+  const dist = Math.round(Math.hypot(measureEnd.x - measureStart.x, measureEnd.y - measureStart.y) / mapState.grid_size * 10) / 10;
+  const badge = document.getElementById('measure-display');
+  if (badge) { badge.textContent = dist + ' quadrados'; badge.style.display = 'inline'; }
+  mapCtx.restore();
+}
+
+function drawToken(tok) {
+  const size = tok.size || mapState.grid_size * 0.9;
+  const sx = tok.x * mapZoom + mapOffset.x;
+  const sy = tok.y * mapZoom + mapOffset.y;
+  const sr = size * mapZoom / 2;
+  mapCtx.save();
+  mapCtx.beginPath();
+  mapCtx.arc(sx, sy, sr, 0, Math.PI * 2);
+  mapCtx.fillStyle = tok.color || '#7c6af7';
+  mapCtx.fill();
+  if (tok.id === selectedTokenId) {
+    mapCtx.strokeStyle = '#7c6af7'; mapCtx.lineWidth = 3; mapCtx.stroke();
+  } else {
+    mapCtx.strokeStyle = 'rgba(255,255,255,0.3)'; mapCtx.lineWidth = 1.5; mapCtx.stroke();
+  }
+  mapCtx.font = `${sr * 0.9}px serif`;
+  mapCtx.textAlign = 'center'; mapCtx.textBaseline = 'middle';
+  mapCtx.fillText(tok.emoji || '⚔️', sx, sy);
+  mapCtx.font = `bold ${Math.max(10, sr * 0.35)}px sans-serif`;
+  mapCtx.fillStyle = '#fff'; mapCtx.strokeStyle = 'rgba(0,0,0,0.8)'; mapCtx.lineWidth = 2;
+  mapCtx.strokeText(tok.name || '', sx, sy + sr + 10);
+  mapCtx.fillText(tok.name || '', sx, sy + sr + 10);
+  if (tok.hp_max) {
+    const bw = sr * 1.6, bh = 5;
+    const bx = sx - bw / 2, by = sy + sr + 4;
+    mapCtx.fillStyle = '#333'; mapCtx.fillRect(bx, by, bw, bh);
+    const pct = Math.max(0, Math.min(1, (tok.hp || 0) / tok.hp_max));
+    mapCtx.fillStyle = pct > 0.5 ? '#4caf50' : pct > 0.25 ? '#ff9800' : '#e94560';
+    mapCtx.fillRect(bx, by, bw * pct, bh);
+  }
+  mapCtx.restore();
+}
+
+function screenToMap(sx, sy) {
+  return { x: (sx - mapOffset.x) / mapZoom, y: (sy - mapOffset.y) / mapZoom };
+}
+
+function snapToGridPos(mx, my) {
+  if (!snapToGrid) return { x: mx, y: my };
+  const gs = mapState.grid_size;
+  return { x: Math.round(mx / gs) * gs, y: Math.round(my / gs) * gs };
+}
+
+function getTokenAt(mx, my) {
+  for (const tok of Object.values(tokens).reverse()) {
+    const r = (tok.size || mapState.grid_size * 0.9) / 2;
+    if (Math.hypot(mx - tok.x, my - tok.y) <= r) return tok;
+  }
+  return null;
+}
+
+function onMapMouseDown(e) {
+  if (e.button === 1 || (e.button === 0 && e.altKey)) {
+    isPanning = true; panStart = { x: e.clientX - mapOffset.x, y: e.clientY - mapOffset.y };
+    mapCanvas.style.cursor = 'grabbing'; return;
+  }
+  const mp = screenToMap(e.clientX - mapCanvas.getBoundingClientRect().left, e.clientY - mapCanvas.getBoundingClientRect().top);
+  if (currentTool === 'measure') { measureStart = { ...mp }; measureEnd = { ...mp }; return; }
+  if (currentTool === 'move') {
+    isPanning = true; panStart = { x: e.clientX - mapOffset.x, y: e.clientY - mapOffset.y };
+    mapCanvas.style.cursor = 'grabbing'; return;
+  }
+  const tok = getTokenAt(mp.x, mp.y);
+  if (tok) {
+    draggingToken = tok; dragOffX = mp.x - tok.x; dragOffY = mp.y - tok.y;
+    selectedTokenId = tok.id; drawMap(); return;
+  }
+  selectedTokenId = null; drawMap();
+}
+
+function onMapMouseMove(e) {
+  const rect = mapCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  if (isPanning) {
+    mapOffset.x = e.clientX - panStart.x; mapOffset.y = e.clientY - panStart.y;
+    drawMap(); return;
+  }
+  if (draggingToken) {
+    const mp = screenToMap(mx, my);
+    const snapped = snapToGridPos(mp.x - dragOffX, mp.y - dragOffY);
+    draggingToken.x = snapped.x; draggingToken.y = snapped.y;
+    drawMap(); return;
+  }
+  if (currentTool === 'measure' && measureStart) {
+    measureEnd = screenToMap(mx, my); drawMap();
+  }
+  const zl = document.getElementById('zoom-info');
+  if (zl) zl.textContent = Math.round(mapZoom * 100) + '%';
+}
+
+function onMapMouseUp(e) {
+  if (draggingToken) {
+    socket.emit('token_move', { room_id: ROOM_ID, token_id: draggingToken.id, x: draggingToken.x, y: draggingToken.y });
+    draggingToken = null;
+  }
+  if (isPanning) { mapCanvas.style.cursor = currentTool === 'move' ? 'grab' : 'crosshair'; }
+  isPanning = false;
+}
+
+function onMapWheel(e) {
+  e.preventDefault();
+  const rect = mapCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  const newZoom = Math.min(4, Math.max(0.1, mapZoom * delta));
+  mapOffset.x = mx - (mx - mapOffset.x) * (newZoom / mapZoom);
+  mapOffset.y = my - (my - mapOffset.y) * (newZoom / mapZoom);
+  mapZoom = newZoom;
+  drawMap();
+  const zl = document.getElementById('zoom-info');
+  if (zl) zl.textContent = Math.round(mapZoom * 100) + '%';
+}
+
+function onMapContextMenu(e) {
+  e.preventDefault();
+  const rect = mapCanvas.getBoundingClientRect();
+  const mp = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+  const tok = getTokenAt(mp.x, mp.y);
+  if (!isGM || !tok) return;
+  contextMenuToken = tok;
+  const menu = document.getElementById('token-menu');
+  menu.classList.remove('hidden');
+  menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
+}
+
+function hideContextMenu() {
+  const menu = document.getElementById('token-menu');
+  if (menu) menu.classList.add('hidden');
+}
+
+function tokenMenuAction(action) {
+  if (!contextMenuToken) return;
+  if (action === 'remove') {
+    delete tokens[contextMenuToken.id];
+    socket.emit('token_remove', { room_id: ROOM_ID, token_id: contextMenuToken.id });
+    drawMap();
+  } else if (action === 'edit') {
+    const name = prompt('Novo nome:', contextMenuToken.name);
+    if (name !== null) {
+      contextMenuToken.name = name;
+      socket.emit('token_update', { room_id: ROOM_ID, token: { ...contextMenuToken } });
+      drawMap();
+    }
+  } else if (action === 'hp') {
+    const hp = prompt('HP atual:', contextMenuToken.hp || 0);
+    const hpMax = prompt('HP máximo:', contextMenuToken.hp_max || 0);
+    if (hp !== null) {
+      contextMenuToken.hp = parseInt(hp) || 0;
+      contextMenuToken.hp_max = parseInt(hpMax) || 0;
+      socket.emit('token_update', { room_id: ROOM_ID, token: { ...contextMenuToken } });
+      drawMap();
+    }
+  }
+  hideContextMenu();
+  contextMenuToken = null;
+}
+
+socket.on('token_added', (tok) => { tokens[tok.id] = tok; drawMap(); });
+socket.on('token_moved', (d) => { if (tokens[d.token_id]) { tokens[d.token_id].x = d.x; tokens[d.token_id].y = d.y; drawMap(); } });
+socket.on('token_removed', (d) => { delete tokens[d.token_id]; drawMap(); });
+socket.on('token_updated', (tok) => { tokens[tok.id] = { ...tokens[tok.id], ...tok }; drawMap(); });
+socket.on('map_updated', applyMapState);
+
+function applyMapState(data) {
+  Object.assign(mapState, data);
+  if (data.background) {
+    const img = new Image();
+    img.onload = () => { mapBgImage = img; drawMap(); };
+    img.src = data.background;
+  } else if (data.background === null) {
+    mapBgImage = null; drawMap();
+  }
+}
+
+function spawnToken(tok) { tokens[tok.id] = tok; if (mapInited) drawMap(); }
+
+function setTool(t) {
+  currentTool = t;
+  document.querySelectorAll('.tool-btn[id^="tool-"]').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('tool-' + t);
+  if (btn) btn.classList.add('active');
+  mapCanvas.style.cursor = t === 'move' ? 'grab' : 'crosshair';
+  if (t !== 'measure') {
+    measureStart = null; measureEnd = null;
+    const badge = document.getElementById('measure-display');
+    if (badge) badge.style.display = 'none';
+  }
+}
+
+function toggleGridPanel() {
+  document.getElementById('grid-panel').classList.toggle('hidden');
+}
+function updateGridSize(v) {
+  document.getElementById('grid-size-val').textContent = v + 'px';
+  mapState.grid_size = parseInt(v);
+  socket.emit('map_update', { room_id: ROOM_ID, map: { grid_size: mapState.grid_size } });
+  drawMap();
+}
+function updateGridColor(v) {
+  mapState.grid_color = v;
+  socket.emit('map_update', { room_id: ROOM_ID, map: { grid_color: v } });
+  drawMap();
+}
+function updateGridOpacity(v) {
+  document.getElementById('grid-opacity-val').textContent = v + '%';
+  mapState.grid_opacity = parseInt(v) / 100;
+  socket.emit('map_update', { room_id: ROOM_ID, map: { grid_opacity: mapState.grid_opacity } });
+  drawMap();
+}
+function setGridType(type, btn) {
+  mapState.grid_type = type;
+  document.querySelectorAll('#grid-type-square,#grid-type-hex').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  socket.emit('map_update', { room_id: ROOM_ID, map: { grid_type: type } });
+  drawMap();
+}
+function toggleSnap(v) { snapToGrid = v; }
+function setGridVisible(v) {
+  mapState.show_grid = v;
+  socket.emit('map_update', { room_id: ROOM_ID, map: { show_grid: v } });
+  drawMap();
+}
+function clearMapBg() {
+  mapBgImage = null; mapState.background = null;
+  socket.emit('map_update', { room_id: ROOM_ID, map: { background: null } });
+  drawMap();
+}
+function uploadMapBg(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      mapBgImage = img;
+      mapState.background = e.target.result;
+      mapState.width = img.width; mapState.height = img.height;
+      socket.emit('map_update', { room_id: ROOM_ID, map: { background: e.target.result, width: img.width, height: img.height } });
+      drawMap();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+// ===================== TOKENS MODAL =====================
+let selectedTokenColor = '#e94560', selectedTokenEmoji = '⚔️';
+function openAddToken() {
+  if (!isGM) return;
+  document.getElementById('token-name').value = '';
+  document.getElementById('token-hp').value = '';
+  document.getElementById('token-hp-max').value = '';
+  document.getElementById('modal-token').classList.remove('hidden');
+}
+function pickColor(el) {
+  document.querySelectorAll('.color-opt').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected'); selectedTokenColor = el.dataset.color;
+}
+function pickEmoji(el) {
+  document.querySelectorAll('.emoji-opt').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected'); selectedTokenEmoji = el.dataset.emoji;
+}
+function addToken() {
+  const name = (document.getElementById('token-name').value || 'Token').trim();
+  const hp = parseInt(document.getElementById('token-hp').value) || 0;
+  const hpMax = parseInt(document.getElementById('token-hp-max').value) || 0;
+  const id = 'tok-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  const gs = mapState.grid_size;
+  const tok = { id, name, color: selectedTokenColor, emoji: selectedTokenEmoji, hp, hp_max: hpMax, x: gs * 2, y: gs * 2, size: gs * 0.9 };
+  tokens[id] = tok;
+  socket.emit('token_add', { room_id: ROOM_ID, token: tok });
+  if (mapInited) drawMap();
+  closeModal('modal-token');
+  switchView('map');
+}
+
+// ===================== GM SHEET VIEWER =====================
+function requestPlayerSheet(sid) {
+  socket.emit('request_player_sheet', { room_id: ROOM_ID, target_sid: sid });
+}
+
+socket.on('player_sheet_data', (data) => {
+  const modal = document.getElementById('modal-gm-sheet');
+  const title = document.getElementById('gm-sheet-title');
+  const content = document.getElementById('gm-sheet-content');
+  const p = players[data.sid];
+  title.textContent = '📋 Ficha de ' + (p?.name || 'Jogador');
+  const s = data.sheet || {};
+  content.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      ${sheetRow('Nome', s.name)}
+      ${sheetRow('Idade', s.age)} ${sheetRow('Altura', s.height)} ${sheetRow('Peso', s.weight)}
+      ${sheetRow('Aparência', s.appearance)}
+      <tr><td colspan="2" style="padding-top:12px;font-weight:700;color:var(--text-faint);font-size:10px;letter-spacing:1px">ATRIBUTOS</td></tr>
+      ${sheetRow('Força', s.forca)} ${sheetRow('Agilidade', s.agilidade)} ${sheetRow('Inteligência', s.inteligencia)}
+      ${sheetRow('Mental', s.mental)} ${sheetRow('Lábia', s.labia)} ${sheetRow('Furtividade', s.furtividade)} ${sheetRow('Defesa', s.defesa)}
+      <tr><td colspan="2" style="padding-top:12px;font-weight:700;color:var(--text-faint);font-size:10px;letter-spacing:1px">VITAIS</td></tr>
+      ${sheetRow('Vida', (s.vida||'?') + '/' + (s['vida-max']||'?'))}
+      ${sheetRow('Sanidade', (s.sanidade||'?') + '/' + (s['sanidade-max']||'?'))}
+      ${sheetRow('Energia', (s.energia||'?') + '/' + (s['energia-max']||'?'))}
+    </table>`;
+  modal.classList.remove('hidden');
+});
+
+function sheetRow(label, value) {
+  if (!value && value !== 0) return '';
+  return `<tr><td style="padding:3px 6px;color:var(--text-muted);width:40%">${label}</td><td style="padding:3px 6px;color:var(--text-primary)">${value}</td></tr>`;
+}
+
+function editPlayerVitals(sid) {
+  const p = players[sid];
+  if (!p) return;
+  const v = p.vitals || {};
+  const vida = prompt('Vida atual:', v.vida || 0);
+  if (vida === null) return;
+  const vidaMax = prompt('Vida máx:', v.vida_max || 60);
+  const san = prompt('Sanidade atual:', v.sanidade || 0);
+  const sanMax = prompt('Sanidade máx:', v.sanidade_max || 50);
+  const en = prompt('Energia atual:', v.energia || 0);
+  const enMax = prompt('Energia máx:', v.energia_max || 50);
+  const newVitals = {
+    ...v, vida: parseInt(vida)||0, vida_max: parseInt(vidaMax)||0,
+    sanidade: parseInt(san)||0, sanidade_max: parseInt(sanMax)||0,
+    energia: parseInt(en)||0, energia_max: parseInt(enMax)||0
+  };
+  socket.emit('update_vitals', { room_id: ROOM_ID, target_sid: sid, vitals: newVitals });
+}
+
+socket.on('player_vitals_updated', (data) => {
+  if (players[data.sid]) players[data.sid].vitals = data.vitals;
+  renderPlayers();
+});
+
+// ===================== FICHA =====================
+const SHEET_KEY = 'rpg_sheet_v2';
+let avatarScale = 1, avatarX = 0, avatarY = 0, avatarDragging = false, avatarDragStart = { x: 0, y: 0 };
+
+function openSheet() {
+  loadSheetFromStorage();
+  document.getElementById('modal-sheet').classList.remove('hidden');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.add('hidden');
+}
+
+function saveSheet() {
+  const sheet = gatherSheet();
+  localStorage.setItem(SHEET_KEY, JSON.stringify(sheet));
+  socket.emit('share_sheet', { room_id: ROOM_ID, sheet });
+  closeModal('modal-sheet');
+}
+
+function gatherSheet() {
+  const fields = ['name','age','height','weight','appearance','origin','forca','agilidade','inteligencia','mental','labia','furtividade','defesa','investigacao','sobrevivencia','ocultismo','religiao','medicina','intuicao','vida','vida-max','sanidade','sanidade-max','energia','energia-max','xp','nivel','equipamentos','personalidade','nao-pode','mais-ama','mais-odeia','mais-teme','historia','anotacoes'];
+  const s = {};
+  for (const f of fields) {
+    const el = document.getElementById('sh-' + f.replace('-','_').replace('-','_'));
+    if (el) s[f] = el.value || '';
+  }
+  s['vida-max'] = (document.getElementById('sh-vida-max')||{}).value || '';
+  s['sanidade-max'] = (document.getElementById('sh-sanidade-max')||{}).value || '';
+  s['energia-max'] = (document.getElementById('sh-energia-max')||{}).value || '';
+  s['nao-pode'] = (document.getElementById('sh-nao_pode')||document.getElementById('sh-nao-pode')||{}).value || '';
+  s['mais-ama'] = (document.getElementById('sh-mais_ama')||document.getElementById('sh-mais-ama')||{}).value || '';
+  s['mais-odeia'] = (document.getElementById('sh-mais_odeia')||document.getElementById('sh-mais-odeia')||{}).value || '';
+  s['mais-teme'] = (document.getElementById('sh-mais_teme')||document.getElementById('sh-mais-teme')||{}).value || '';
+  s['attr-max'] = (document.getElementById('sh-attr-max')||{}).value || '16';
+  s['per-max'] = (document.getElementById('sh-per-max')||{}).value || '7';
+  s.classes = {
+    sentitivo: document.getElementById('sh-cls-sentitivo')?.checked || false,
+    possuido: document.getElementById('sh-cls-possuido')?.checked || false,
+    feiticeiro: document.getElementById('sh-cls-feiticeiro')?.checked || false,
+    santificado: document.getElementById('sh-cls-santificado')?.checked || false,
+  };
+  s.inventory = [];
+  document.querySelectorAll('.inv-item input').forEach(i => s.inventory.push(i.value));
+  s.habilidades = [];
+  document.querySelectorAll('.hab-item').forEach(hab => {
+    s.habilidades.push({
+      name: hab.querySelector('.hab-name')?.value || '',
+      cost: hab.querySelector('.hab-cost')?.value || '',
+      desc: hab.querySelector('.hab-desc')?.value || ''
+    });
+  });
+  s.avatar = document.getElementById('sh-avatar')?.src || null;
+  s.avatarTransform = { scale: avatarScale, x: avatarX, y: avatarY };
+  return s;
+}
+
+function loadSheetFromStorage() {
+  const raw = localStorage.getItem(SHEET_KEY);
+  if (!raw) return;
+  try { applySheet(JSON.parse(raw)); } catch(e) {}
+}
+
+function applySheet(s) {
+  const simple = ['name','age','height','weight','appearance','forca','agilidade','inteligencia','mental','labia','furtividade','defesa','investigacao','sobrevivencia','ocultismo','religiao','medicina','intuicao','vida','sanidade','energia','xp','nivel','equipamentos','personalidade','historia','anotacoes','origin'];
+  for (const f of simple) {
+    const el = document.getElementById('sh-' + f);
+    if (el && s[f] !== undefined) el.value = s[f];
+  }
+  const vmax = (k, elid) => { const el = document.getElementById(elid); if (el && s[k] !== undefined) el.value = s[k]; };
+  vmax('vida-max', 'sh-vida-max'); vmax('sanidade-max', 'sh-sanidade-max'); vmax('energia-max', 'sh-energia-max');
+  vmax('attr-max', 'sh-attr-max'); vmax('per-max', 'sh-per-max');
+  const naoEl = document.getElementById('sh-nao_pode'); if (naoEl && s['nao-pode'] !== undefined) naoEl.value = s['nao-pode'];
+  const amaEl = document.getElementById('sh-mais_ama'); if (amaEl && s['mais-ama'] !== undefined) amaEl.value = s['mais-ama'];
+  const odeiaEl = document.getElementById('sh-mais_odeia'); if (odeiaEl && s['mais-odeia'] !== undefined) odeiaEl.value = s['mais-odeia'];
+  const temeEl = document.getElementById('sh-mais_teme'); if (temeEl && s['mais-teme'] !== undefined) temeEl.value = s['mais-teme'];
+  if (s.classes) {
+    if (document.getElementById('sh-cls-sentitivo')) document.getElementById('sh-cls-sentitivo').checked = s.classes.sentitivo;
+    if (document.getElementById('sh-cls-possuido')) document.getElementById('sh-cls-possuido').checked = s.classes.possuido;
+    if (document.getElementById('sh-cls-feiticeiro')) document.getElementById('sh-cls-feiticeiro').checked = s.classes.feiticeiro;
+    if (document.getElementById('sh-cls-santificado')) document.getElementById('sh-cls-santificado').checked = s.classes.santificado;
+  }
+  const invList = document.getElementById('sh-inventory-list');
+  if (invList) {
+    invList.innerHTML = '';
+    (s.inventory || []).forEach(item => addInventoryItem(item));
+  }
+  const habList = document.getElementById('sh-habilidades-list');
+  if (habList) {
+    habList.innerHTML = '';
+    (s.habilidades || []).forEach(h => addHabilidade(h));
+  }
+  if (s.avatar) {
+    const img = document.getElementById('sh-avatar');
+    const ph = document.getElementById('sh-avatar-placeholder');
+    const ctrl = document.getElementById('sh-avatar-controls');
+    if (img) { img.src = s.avatar; img.style.display = 'block'; }
+    if (ph) ph.style.display = 'none';
+    if (ctrl) ctrl.style.display = 'flex';
+    if (s.avatarTransform) {
+      avatarScale = s.avatarTransform.scale || 1;
+      avatarX = s.avatarTransform.x || 0;
+      avatarY = s.avatarTransform.y || 0;
+      applyAvatarTransform();
+    }
+  }
+  updateAttrPoints(); updatePerPoints();
+}
+
+function updateAttrPoints() {
+  const attrs = ['forca','agilidade','inteligencia','mental','labia','furtividade','defesa'];
+  let used = 0;
+  for (const a of attrs) { const el = document.getElementById('sh-' + a); if (el) used += parseInt(el.value) || 0; }
+  const usedEl = document.getElementById('sh-attr-used');
+  if (usedEl) usedEl.textContent = used;
+  updateAttrHint();
+}
+function updateAttrHint() {
+  const max = parseInt(document.getElementById('sh-attr-max')?.value) || 16;
+  const used = parseInt(document.getElementById('sh-attr-used')?.textContent) || 0;
+  const hint = document.getElementById('sh-attr-hint-text');
+  if (hint) hint.textContent = (max - used) + ' pontos para distribuir';
+}
+function updatePerPoints() {
+  const pers = ['investigacao','sobrevivencia','ocultismo','religiao','medicina','intuicao'];
+  let used = 0;
+  for (const p of pers) { const el = document.getElementById('sh-' + p); if (el) used += parseInt(el.value) || 0; }
+  const usedEl = document.getElementById('sh-per-used');
+  if (usedEl) usedEl.textContent = used;
+  updatePerHint();
+}
+function updatePerHint() {
+  const max = parseInt(document.getElementById('sh-per-max')?.value) || 7;
+  const used = parseInt(document.getElementById('sh-per-used')?.textContent) || 0;
+  const hint = document.getElementById('sh-per-hint-text');
+  if (hint) hint.textContent = (max - used) + ' pontos para distribuir';
+}
+
+function addInventoryItem(value = '') {
+  const list = document.getElementById('sh-inventory-list');
+  if (!list) return;
+  const item = document.createElement('div'); item.className = 'inv-item';
+  item.innerHTML = `<input type="text" placeholder="Item..." value="${value}"><button class="inv-del" onclick="this.parentElement.remove()">×</button>`;
+  list.appendChild(item);
+}
+
+function addHabilidade(data = {}) {
+  const list = document.getElementById('sh-habilidades-list');
+  if (!list) return;
+  const item = document.createElement('div'); item.className = 'hab-item';
+  item.innerHTML = `
+    <div class="hab-row">
+      <input type="text" class="hab-name" placeholder="Nome da habilidade" value="${data.name||''}">
+      <input type="text" class="hab-cost" placeholder="Custo" value="${data.cost||''}">
+      <button class="hab-del" onclick="this.closest('.hab-item').remove()">×</button>
+    </div>
+    <textarea class="hab-desc" placeholder="Descrição...">${data.desc||''}</textarea>`;
+  list.appendChild(item);
+}
+
+function loadSheetAvatar(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = document.getElementById('sh-avatar');
+    const ph = document.getElementById('sh-avatar-placeholder');
+    const ctrl = document.getElementById('sh-avatar-controls');
+    img.src = e.target.result; img.style.display = 'block';
+    if (ph) ph.style.display = 'none';
+    if (ctrl) ctrl.style.display = 'flex';
+    avatarScale = 1; avatarX = 0; avatarY = 0;
+    applyAvatarTransform();
+  };
+  reader.readAsDataURL(file);
+}
+
+document.getElementById('sh-avatar-slot').addEventListener('click', (e) => {
+  if (e.target.closest('.sheet-avatar-controls')) return;
+  document.getElementById('sh-img-upload').click();
+});
+
+let _avatarMouseDown = false, _avatarStart = {};
+document.getElementById('sh-avatar-viewport').addEventListener('mousedown', (e) => {
+  if (document.getElementById('sh-avatar').style.display === 'none') return;
+  _avatarMouseDown = true; _avatarStart = { x: e.clientX - avatarX, y: e.clientY - avatarY };
+  e.preventDefault();
+});
+document.addEventListener('mousemove', (e) => {
+  if (!_avatarMouseDown) return;
+  avatarX = e.clientX - _avatarStart.x; avatarY = e.clientY - _avatarStart.y;
+  applyAvatarTransform();
+});
+document.addEventListener('mouseup', () => { _avatarMouseDown = false; });
+
+function avatarZoom(delta) {
+  avatarScale = Math.max(0.1, Math.min(5, avatarScale + delta));
+  applyAvatarTransform();
+}
+function resetAvatar() { avatarScale = 1; avatarX = 0; avatarY = 0; applyAvatarTransform(); }
+function applyAvatarTransform() {
+  const img = document.getElementById('sh-avatar');
+  if (img) img.style.transform = `translate(${avatarX}px, ${avatarY}px) scale(${avatarScale})`;
+}
+
+// ===================== LOAD ON START =====================
+document.addEventListener('DOMContentLoaded', () => {
+  loadSheetFromStorage();
+  updateAttrPoints(); updatePerPoints();
+  addInventoryItem('');
+});

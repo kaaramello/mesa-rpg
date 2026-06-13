@@ -2,12 +2,41 @@
   "name": "mesa-rpg",
   "version": "1.0.0",
   "description": "Mesa de RPG Digital",
-  "main": "app.js",
+  "main": "main.js",
+  "author": "Vitin",
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "electron": "electron .",
+    "build": "electron-builder --win portable",
+    "pack": "electron-packager . \"MesaRPG\" --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"\\.git|dist|node_modules\\.cache\" --electron-version=31.7.7"
   },
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "electron-packager": "^17.1.2"
+  },
+  "build": {
+    "appId": "com.mesarpg.digital",
+    "productName": "Mesa RPG Digital",
+    "files": [
+      "main.js",
+      "app.js",
+      "static/**",
+      "templates/**",
+      "node_modules/**"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "static/icon.ico",
+      "certificateSubjectName": null,
+      "signingHashAlgorithms": null
+    },
+    "portable": {
+      "artifactName": "MesaRPG.exe"
+    }
   }
 }

@@ -21,7 +21,25 @@
       "Bash(git init *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(git branch *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(winget install *)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); node --version; npm --version)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('electron:', p.devDependencies.electron, '| electron-builder:', p.devDependencies['electron-builder']\\)\")",
+      "Bash(node -e \"const {createServer}=require\\('./app'\\); createServer\\(5001\\).then\\(\\(\\)=>{console.log\\('OK'\\); process.exit\\(0\\);}\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(npx electron *)",
+      "Bash(node node_modules/electron/install.js)",
+      "Bash(ELECTRON_GET_USE_PROXY=false npx @electron/get --version=31.7.7)",
+      "Bash(node -e \"const path=require\\('path'\\); const electronGet=require\\(path.join\\('C:/Users/vitin/rpg/node_modules/@electron/get'\\)\\); electronGet.downloadArtifact\\({version:'31.7.7',artifactName:'electron'}\\).then\\(p=>{console.log\\('downloaded to:',p\\)}\\).catch\\(e=>{console.error\\(e.message\\)}\\)\")",
+      "Bash(npm run *)",
+      "Bash(CSC_IDENTITY_AUTO_DISCOVERY=false WIN_CSC_LINK=\"\" npm run build)",
+      "Bash(CSC_IDENTITY_AUTO_DISCOVERY=false npm run build)",
+      "Bash(cmd.exe /c \"rmdir /s /q C:\\\\Users\\\\vitin\\\\rpg\\\\dist\")",
+      "Bash(npx electron-packager *)"
     ]
   }
 }

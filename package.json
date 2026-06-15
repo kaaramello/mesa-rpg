@@ -5,7 +5,7 @@
   "main": "main.js",
   "author": "Vitin",
   "scripts": {
-    "start": "ls -la && node app.js",
+    "start": "node app.js",
     "electron": "electron .",
     "build": "electron-builder --win portable",
     "pack": "electron-packager . \"MesaRPG\" --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"\\.git|dist|node_modules\\.cache\" --electron-version=31.7.7"

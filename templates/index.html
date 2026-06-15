@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mesa RPG Digital</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#e94560">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mesa RPG">
+<link rel="apple-touch-icon" href="/static/img/icon-192.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -77,24 +83,29 @@
 
   <div class="section">
     <label>Seu nome</label>
-    <input type="text" id="player-name" placeholder="Como você quer ser chamado?" maxlength="24">
+    <input type="text" id="player-name" placeholder="Como você quer ser chamado?" maxlength="32">
   </div>
 
   <div class="section">
     <div class="checkbox-row">
-      <input type="checkbox" id="is-gm">
+      <input type="checkbox" id="is-gm" onchange="toggleGMFields()">
       <label for="is-gm">Sou o Mestre (GM) — tenho controle total da mesa</label>
     </div>
   </div>
 
-  <button class="btn btn-primary" onclick="createRoom()">✦ Criar Nova Sala</button>
+  <div class="section" id="gm-room-section" style="display:none">
+    <label>Nome da sala <span style="color:#888;font-size:0.8em">(será a senha para os jogadores entrarem)</span></label>
+    <input type="text" id="room-name-create" placeholder="Ex: Mesa do Vitin, Campanha01..." maxlength="32">
+  </div>
+
+  <button class="btn btn-primary" id="btn-create" style="display:none" onclick="createRoom()">✦ Criar Sala</button>
 
   <hr class="divider">
 
   <div class="join-section">
     <label>Entrar em sala existente</label>
     <div class="row">
-      <input type="text" id="room-code" placeholder="Código da sala (ex: AB3X9Z)" maxlength="6" style="text-transform:uppercase">
+      <input type="text" id="room-code" placeholder="Nome / senha da sala" maxlength="64" style="text-transform:uppercase">
       <button class="btn btn-secondary" style="margin:0" onclick="joinRoom()">Entrar</button>
     </div>
   </div>
@@ -104,32 +115,68 @@
   document.getElementById('room-code').addEventListener('input', function() {
     this.value = this.value.toUpperCase();
   });
+  document.getElementById('room-name-create').addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+  });
+
+  // Restaurar dados da última sessão
+  window.addEventListener('load', () => {
+    const savedName = localStorage.getItem('rpg_last_name');
+    const savedRoom = localStorage.getItem('rpg_last_room');
+    const savedIsGM = localStorage.getItem('rpg_last_is_gm') === '1';
+    if (savedName) document.getElementById('player-name').value = savedName;
+    if (savedRoom) document.getElementById('room-code').value = savedRoom;
+    if (savedIsGM) {
+      document.getElementById('is-gm').checked = true;
+      if (savedRoom) document.getElementById('room-name-create').value = savedRoom;
+      toggleGMFields();
+    }
+  });
+
+  function toggleGMFields() {
+    const isGM = document.getElementById('is-gm').checked;
+    document.getElementById('gm-room-section').style.display = isGM ? '' : 'none';
+    document.getElementById('btn-create').style.display = isGM ? '' : 'none';
+  }
+
+  function normalizeRoomId(raw) {
+    return raw.trim().toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9\-]/g, '');
+  }
 
   function createRoom() {
     const name = document.getElementById('player-name').value.trim();
     if (!name) { alert('Digite seu nome!'); return; }
-    const isGM = document.getElementById('is-gm').checked;
-    const roomId = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const rawRoom = document.getElementById('room-name-create').value.trim();
+    if (!rawRoom) { alert('Digite o nome da sala!'); return; }
+    const roomId = normalizeRoomId(rawRoom);
+    if (roomId.length < 2) { alert('Nome de sala inválido. Use letras e números.'); return; }
+    localStorage.setItem('rpg_last_name', name);
+    localStorage.setItem('rpg_last_room', rawRoom);
+    localStorage.setItem('rpg_last_is_gm', '1');
     sessionStorage.setItem('player_name', name);
-    sessionStorage.setItem('is_gm', isGM ? '1' : '0');
+    sessionStorage.setItem('is_gm', '1');
     window.location.href = `/room/${roomId}`;
   }
 
   function joinRoom() {
     const name = document.getElementById('player-name').value.trim();
-    const code = document.getElementById('room-code').value.trim().toUpperCase();
+    const raw = document.getElementById('room-code').value.trim();
     if (!name) { alert('Digite seu nome!'); return; }
-    if (!code || code.length < 4) { alert('Digite um código de sala válido!'); return; }
-    const isGM = document.getElementById('is-gm').checked;
+    if (!raw || raw.length < 2) { alert('Digite o nome/senha da sala!'); return; }
+    const roomId = normalizeRoomId(raw);
+    const isGMCheck = document.getElementById('is-gm').checked;
+    localStorage.setItem('rpg_last_name', name);
+    localStorage.setItem('rpg_last_room', raw);
+    localStorage.setItem('rpg_last_is_gm', isGMCheck ? '1' : '0');
     sessionStorage.setItem('player_name', name);
-    sessionStorage.setItem('is_gm', isGM ? '1' : '0');
-    window.location.href = `/room/${code}`;
+    sessionStorage.setItem('is_gm', isGMCheck ? '1' : '0');
+    window.location.href = `/room/${roomId}`;
   }
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
-      const code = document.getElementById('room-code').value.trim();
-      if (code.length >= 4) joinRoom(); else createRoom();
+      const isGM = document.getElementById('is-gm').checked;
+      if (isGM) createRoom(); else joinRoom();
     }
   });
 </script>

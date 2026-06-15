@@ -57,6 +57,7 @@ async function createWindow() {
 
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.setTitle(`Mesa RPG Digital — compartilhe: http://${localIP}:${port}`);
+    mainWindow.webContents.executeJavaScript(`window._radminURL = "http://${localIP}:${port}";`);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

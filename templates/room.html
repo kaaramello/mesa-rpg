@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#e94560">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mesa RPG">
+<link rel="apple-touch-icon" href="/static/img/icon-192.png">
 <title>Mesa RPG Digital</title>
 <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 <link rel="stylesheet" href="/static/css/room.css">
@@ -19,12 +25,17 @@
     <button class="nav-btn" data-view="map" onclick="switchView('map')" title="Mapa">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
     </button>
-    <button class="nav-btn" data-view="dice" onclick="switchView('dice')" title="Dados">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/><circle cx="16" cy="8" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="8" cy="16" r="1.5" fill="currentColor"/><circle cx="16" cy="16" r="1.5" fill="currentColor"/></svg>
+    <button class="nav-btn gm-only" data-view="battle" onclick="switchView('battle')" title="Monstros / Combate">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2C7.03 2 3 6.03 3 11c0 3.1 1.5 5.84 3.84 7.57L7 20v2h10v-2l.16-1.43C19.5 16.84 21 14.1 21 11 21 6.03 16.97 2 12 2z"/>
+        <circle cx="9.5" cy="11" r="1" fill="currentColor" stroke="none"/>
+        <circle cx="14.5" cy="11" r="1" fill="currentColor" stroke="none"/>
+        <path d="M10 19h4M12 16v3"/>
+      </svg>
     </button>
   </div>
   <div class="nav-bottom">
-    <button class="nav-btn" onclick="openSheet()" title="Minha Ficha">
+    <button class="nav-btn sheet-btn" onclick="openSheet()" title="Minha Ficha">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
     </button>
     <div class="nav-avatar" id="nav-avatar" title="Você">?</div>
@@ -50,19 +61,44 @@
       <button class="tool-btn" onclick="document.getElementById('map-upload').click()" title="Imagem de fundo">🖼</button>
       <input type="file" id="map-upload" accept="image/*" style="display:none" onchange="uploadMapBg(event)">
       <div class="tool-sep"></div>
+      <button class="tool-btn gm-only" id="tool-pin" onclick="setTool('pin')" title="Pontos de Interesse">📍</button>
       <span id="zoom-info" class="zoom-label">100%</span>
     </div>
     <div class="topbar-right">
       <span id="measure-display" style="display:none" class="measure-badge"></span>
       <button class="topbar-btn copy-btn" onclick="copyRoomLink()">🔗 Copiar link</button>
+      <button class="topbar-btn qr-btn" onclick="openQR()" title="QR Code para entrar">📱 QR Code</button>
+      <button class="topbar-btn mobile-players-btn" id="mobile-players-btn" onclick="toggleMobilePanel()" title="Jogadores">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span id="mobile-online-count">1</span>
+      </button>
       <div id="player-badge" class="player-badge"></div>
     </div>
   </header>
 
   <!-- ===== VIEW: CHAT ===== -->
   <div id="view-chat" class="view active">
+
+    <!-- Fila de turno flutuante (só GM) -->
+    <div id="turn-queue" class="hidden gm-only">
+      <div id="tq-resize-nw" class="tq-resize-nw" title="Redimensionar"></div>
+      <div class="tq-header" id="tq-header">
+        <span class="tq-title">⚔️ FILA DE TURNO</span>
+        <div class="tq-header-btns">
+          <button class="tq-hbtn tq-addp-btn" onclick="tqOpenDrop('player')" title="Adicionar jogador">+J</button>
+          <button class="tq-hbtn tq-addm-btn" onclick="tqOpenDrop('monster')" title="Adicionar monstro">+M</button>
+          <button class="tq-hbtn tq-clear-btn" onclick="tqClearAll()" title="Limpar fila">🗑</button>
+          <button class="tq-hbtn tq-next-btn" onclick="nextCombatTurn()" title="Próximo turno">▶</button>
+          <button class="tq-hbtn tq-close-btn" onclick="toggleTurnQueue()" title="Fechar">✕</button>
+        </div>
+      </div>
+      <div id="tq-combatants" class="tq-combatants"></div>
+      <div id="tq-add-drop" class="tq-add-drop hidden"></div>
+    </div>
+
     <div id="messages-area">
       <div id="messages-list"></div>
+      <button id="chat-scroll-down" class="chat-scroll-down hidden" onclick="jumpToBottom()">↓ <span id="chat-unread-count">0</span> novas</button>
     </div>
     <div id="chat-footer">
       <div class="chat-toolbar">
@@ -74,6 +110,30 @@
         </button>
         <input type="file" id="file-img" accept="image/*" style="display:none" onchange="sendFile(event)">
         <input type="file" id="file-any" style="display:none" onchange="sendFile(event)">
+        <div class="chat-mode-btns">
+          <button class="chat-mode-btn active" id="mode-normal" onclick="setChatMode('normal')" title="Normal — fala como você mesmo">👤</button>
+          <button class="chat-mode-btn" id="mode-persona" onclick="setChatMode('persona')" title="Personificar — fala como um personagem">🎭</button>
+          <button class="chat-mode-btn" id="mode-narrador" onclick="setChatMode('narrador')" title="Narrador — fala como narração">📜</button>
+        </div>
+        <!-- Dados rápidos -->
+        <button class="chat-tool gm-only" onclick="toggleTurnQueue()" title="Fila de Turno / Combate" style="font-size:15px">⚔️</button>
+        <div class="chat-dice-btns">
+          <button class="cdice-btn" onclick="rollDice(4)"   title="Rolar 1d4"  style="--dc:#9C27B0">d4</button>
+          <button class="cdice-btn" onclick="rollDice(6)"   title="Rolar 1d6"  style="--dc:#2196F3">d6</button>
+          <button class="cdice-btn" onclick="rollDice(8)"   title="Rolar 1d8"  style="--dc:#4CAF50">d8</button>
+          <button class="cdice-btn" onclick="rollDice(10)"  title="Rolar 1d10" style="--dc:#FF9800">d10</button>
+          <button class="cdice-btn featured" onclick="rollDice(12)"  title="Rolar 1d12" style="--dc:#00BCD4">d12</button>
+          <button class="cdice-btn" onclick="rollDice(20)"  title="Rolar 1d20" style="--dc:#e94560">d20</button>
+          <button class="cdice-btn cdice-frac" onclick="rollFracD6()" title="d6 Fracionado — iniciativa" style="--dc:#FF6B35">d6✦</button>
+          <div class="cdice-pct-group">
+            <input type="number" id="dpct-val" class="cdice-pct-input" value="100" min="1" max="9999" title="Faces do dado" onclick="this.select()">
+            <button class="cdice-btn" onclick="rollDice(parseInt(document.getElementById('dpct-val').value)||100)" title="Rolar dado%" style="--dc:#607D8B">d%</button>
+          </div>
+        </div>
+      </div>
+      <div id="persona-row" style="display:none">
+        <span class="persona-label">Como:</span>
+        <input type="text" id="persona-name" class="persona-input" placeholder="Nome do personagem..." maxlength="32">
       </div>
       <div class="chat-input-row">
         <input type="text" id="chat-input" placeholder="Digite uma mensagem..." maxlength="500" onkeydown="chatKeydown(event)">
@@ -81,6 +141,30 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== VIEW: BATALHA / MONSTROS (só GM) ===== -->
+  <div id="view-battle" class="view">
+    <div class="battle-layout">
+
+      <!-- Painel de notas do mestre -->
+      <div class="battle-notes-panel">
+        <div class="battle-notes-header">📝 NOTAS DA SESSÃO</div>
+        <textarea id="gm-battle-notes" class="battle-notes-ta"
+          placeholder="Anotações da sessão, NPCs, segredos, pistas..."
+          oninput="saveBattleNotes(this.value)"></textarea>
+      </div>
+
+      <!-- Grade de monstros -->
+      <div class="monsters-wrap">
+        <div class="monsters-header">
+          <span class="monsters-title">⚔️ MONSTROS &amp; COMBATE</span>
+          <button class="monsters-add-btn" onclick="addMonster()">＋ Adicionar Monstro</button>
+        </div>
+        <div id="monsters-grid" class="monsters-grid"></div>
+      </div>
+
     </div>
   </div>
 
@@ -123,42 +207,49 @@
     </div>
   </div>
 
-  <!-- ===== VIEW: DADOS ===== -->
-  <div id="view-dice" class="view">
-    <div id="dice-view-inner">
-      <div class="dice-section-title">Escolha o dado</div>
-      <div class="dice-grid">
-        <button class="die-btn" onclick="rollDice(4)" style="--dc:#9C27B0"><span class="die-sides">d4</span><div class="die-shape-tri"></div></button>
-        <button class="die-btn" onclick="rollDice(6)" style="--dc:#2196F3"><span class="die-sides">d6</span><div class="die-shape-sq"></div></button>
-        <button class="die-btn" onclick="rollDice(8)" style="--dc:#4CAF50"><span class="die-sides">d8</span><div class="die-shape-dia"></div></button>
-        <button class="die-btn" onclick="rollDice(10)" style="--dc:#FF9800"><span class="die-sides">d10</span><div class="die-shape-pent"></div></button>
-        <button class="die-btn featured" onclick="rollDice(12)" style="--dc:#00BCD4"><span class="die-sides">d12</span><div class="die-shape-hex"></div></button>
-        <button class="die-btn" onclick="rollDice(20)" style="--dc:#e94560"><span class="die-sides">d20</span><div class="die-shape-hex"></div></button>
-        <button class="die-btn" onclick="rollDice(100)" style="--dc:#607D8B"><span class="die-sides">d%</span><div class="die-shape-circ"></div></button>
-      </div>
-      <div class="dice-opts">
-        <label>Qtd <input type="number" id="dice-count" value="1" min="1" max="20"></label>
-        <label>Mod <input type="number" id="dice-mod" value="0" min="-99" max="99"></label>
-        <button class="roll-custom-btn" onclick="rollCustom()">Personalizado</button>
-      </div>
-      <div class="dice-hist-title">Histórico</div>
-      <div id="dice-history"></div>
-    </div>
-  </div>
 
 </div><!-- #app-body -->
 
 <!-- ===== PAINEL DIREITO: JOGADORES ===== -->
 <aside id="right-panel">
-  <div class="rp-header">JOGADORES</div>
+  <div class="rp-header">
+    JOGADORES
+    <button class="rp-close-btn" onclick="toggleMobilePanel()" title="Fechar">✕</button>
+  </div>
   <div id="players-list"></div>
 </aside>
+<div id="mobile-overlay" onclick="toggleMobilePanel()"></div>
 
 <!-- ===== CONTEXT MENU DO TOKEN ===== -->
 <div id="token-menu" class="context-menu hidden">
   <button onclick="tokenMenuAction('edit')">✏️ Editar nome</button>
   <button onclick="tokenMenuAction('hp')">❤️ Alterar HP</button>
+  <button onclick="tokenMenuAction('resize')">📐 Tamanho</button>
+  <button onclick="tokenMenuAction('avatar')">📷 Foto da Ficha</button>
   <button onclick="tokenMenuAction('remove')">🗑️ Remover</button>
+</div>
+
+<div id="pin-menu" class="context-menu hidden">
+  <button onclick="pinMenuAction('edit')">✏️ Renomear</button>
+  <button onclick="pinMenuAction('remove')">🗑️ Remover</button>
+</div>
+
+<!-- PIN POPUP -->
+<div id="pin-popup" class="pin-popup hidden">
+  <div class="pin-popup-title">📍 Ponto de Interesse</div>
+  <input type="text" id="pin-label-input" placeholder="Nome do local..." maxlength="40">
+  <div class="pin-color-opts">
+    <span class="pin-color-opt selected" data-color="#FF9800" style="background:#FF9800" onclick="selectPinColor(this)"></span>
+    <span class="pin-color-opt" data-color="#e94560" style="background:#e94560" onclick="selectPinColor(this)"></span>
+    <span class="pin-color-opt" data-color="#4CAF50" style="background:#4CAF50" onclick="selectPinColor(this)"></span>
+    <span class="pin-color-opt" data-color="#2196F3" style="background:#2196F3" onclick="selectPinColor(this)"></span>
+    <span class="pin-color-opt" data-color="#9C27B0" style="background:#9C27B0" onclick="selectPinColor(this)"></span>
+    <span class="pin-color-opt" data-color="#ffffff" style="background:#fff;outline:1px solid #555" onclick="selectPinColor(this)"></span>
+  </div>
+  <div class="pin-popup-actions">
+    <button class="btn-cancel" onclick="closePinPopup()">Cancelar</button>
+    <button class="btn-confirm" onclick="confirmAddPin()">Adicionar</button>
+  </div>
 </div>
 
 <!-- ===== OVERLAY 3D DOS DADOS ===== -->
@@ -217,6 +308,17 @@
       <span class="emoji-opt" data-emoji="⭐" onclick="pickEmoji(this)">⭐</span>
       <span class="emoji-opt" data-emoji="💎" onclick="pickEmoji(this)">💎</span>
     </div>
+    <label>Jogador (auto-preenche nome e foto)</label>
+    <select id="token-player-select" onchange="tokenPickPlayer(this.value)" style="margin-bottom:4px">
+      <option value="">— Nenhum / Monstro —</option>
+    </select>
+    <label>Tamanho (casas da grade)</label>
+    <div class="token-size-row">
+      <button class="tok-sz-btn active" data-sz="0.9" onclick="pickTokenSize(this)">1×</button>
+      <button class="tok-sz-btn" data-sz="1.8" onclick="pickTokenSize(this)">2×</button>
+      <button class="tok-sz-btn" data-sz="2.7" onclick="pickTokenSize(this)">3×</button>
+      <button class="tok-sz-btn" data-sz="0.5" onclick="pickTokenSize(this)">½×</button>
+    </div>
     <label>HP (opcional)</label>
     <div style="display:flex;gap:8px">
       <input type="number" id="token-hp" placeholder="Atual" style="flex:1">
@@ -241,133 +343,190 @@
       </div>
       <div class="sheet-classe-box">
         <div class="sheet-section-label">CLASSE</div>
-        <label class="sheet-check"><input type="checkbox" id="sh-cls-sentitivo"> Sentitivo</label>
+        <label class="sheet-check"><input type="checkbox" id="sh-cls-sentitivo"> Sensitivo</label>
         <label class="sheet-check"><input type="checkbox" id="sh-cls-possuido"> Possuído</label>
         <label class="sheet-check"><input type="checkbox" id="sh-cls-feiticeiro"> Feiticeiro</label>
         <label class="sheet-check"><input type="checkbox" id="sh-cls-santificado"> Santificado</label>
       </div>
     </div>
+    <nav class="sheet-tabs">
+      <button class="sheet-tab active" data-tab="perfil" onclick="switchSheetTab('perfil',this)">PERFIL</button>
+      <button class="sheet-tab" data-tab="status" onclick="switchSheetTab('status',this)">STATUS</button>
+      <button class="sheet-tab" data-tab="inventario" onclick="switchSheetTab('inventario',this)">INVENTÁRIO</button>
+      <button class="sheet-tab" data-tab="habilidades" onclick="switchSheetTab('habilidades',this)">HABILIDADES</button>
+      <button class="sheet-tab" data-tab="historia" onclick="switchSheetTab('historia',this)">HISTÓRIA</button>
+      <button class="sheet-tab" data-tab="espaco" onclick="switchSheetTab('espaco',this)">SEU ESPAÇO</button>
+    </nav>
     <div class="sheet-body">
-      <!-- COLUNA ESQUERDA -->
-      <div class="sheet-col-left">
-        <div class="sheet-block">
-          <div class="sheet-block-title">DADOS DO PERSONAGEM</div>
-          <div class="sheet-avatar-row">
-            <div class="sheet-avatar-slot" id="sh-avatar-slot">
-              <div class="sheet-avatar-viewport" id="sh-avatar-viewport">
-                <img id="sh-avatar" src="" alt="" style="display:none;transform-origin:0 0;">
+
+      <!-- ABA: PERFIL -->
+      <div class="stab active" id="stab-perfil">
+        <div class="stab-inner">
+          <div class="sheet-block">
+            <div class="sheet-block-title">DADOS DO PERSONAGEM</div>
+            <div class="sheet-avatar-row">
+              <div class="sheet-avatar-slot" id="sh-avatar-slot">
+                <div class="sheet-avatar-viewport" id="sh-avatar-viewport">
+                  <img id="sh-avatar" src="" alt="" style="display:none;transform-origin:0 0;">
+                </div>
+                <span id="sh-avatar-placeholder">CLIQUE<br>PARA<br>IMAGEM</span>
+                <div class="sheet-avatar-controls" id="sh-avatar-controls" style="display:none">
+                  <button onclick="event.stopPropagation();document.getElementById('sh-img-upload').click()" title="Trocar imagem">🖼</button>
+                  <button onclick="event.stopPropagation();avatarZoom(0.15)" title="Zoom +">+</button>
+                  <button onclick="event.stopPropagation();avatarZoom(-0.15)" title="Zoom −">−</button>
+                  <button onclick="event.stopPropagation();resetAvatar()" title="Resetar">↺</button>
+                </div>
+                <input type="file" id="sh-img-upload" accept="image/*" style="display:none" onchange="loadSheetAvatar(event)">
               </div>
-              <span id="sh-avatar-placeholder">CLIQUE<br>PARA<br>IMAGEM</span>
-              <div class="sheet-avatar-controls" id="sh-avatar-controls" style="display:none">
-                <button onclick="event.stopPropagation();document.getElementById('sh-img-upload').click()" title="Trocar imagem">🖼</button>
-                <button onclick="event.stopPropagation();avatarZoom(0.15)" title="Zoom +">+</button>
-                <button onclick="event.stopPropagation();avatarZoom(-0.15)" title="Zoom −">−</button>
-                <button onclick="event.stopPropagation();resetAvatar()" title="Resetar">↺</button>
+              <div class="sheet-dados-fields">
+                <div class="sheet-field-row"><label>NOME</label><input type="text" id="sh-name" class="sheet-input sheet-input-full"></div>
+                <div class="sheet-field-trio">
+                  <div class="sheet-field-item"><label>NÍVEL</label><input type="number" id="sh-nivel" class="sheet-input" placeholder="1" min="1" max="20"></div>
+                  <div class="sheet-field-item"><label>XP</label><input type="number" id="sh-xp" class="sheet-input" placeholder="0" min="0"></div>
+                  <div class="sheet-field-item"><label>IDADE</label><input type="text" id="sh-age" class="sheet-input"></div>
+                </div>
+                <div class="sheet-field-trio">
+                  <div class="sheet-field-item"><label>ALTURA</label><input type="text" id="sh-height" class="sheet-input"></div>
+                  <div class="sheet-field-item"><label>PESO</label><input type="text" id="sh-weight" class="sheet-input"></div>
+                  <div class="sheet-field-item"><label>PROFISSÃO</label><input type="text" id="sh-profissao" class="sheet-input"></div>
+                </div>
+                <div class="sheet-field-row"><label>APARÊNCIA</label><input type="text" id="sh-appearance" class="sheet-input sheet-input-full"></div>
               </div>
-              <input type="file" id="sh-img-upload" accept="image/*" style="display:none" onchange="loadSheetAvatar(event)">
             </div>
-            <div class="sheet-dados-fields">
-              <div class="sheet-field-row"><label>NOME</label><input type="text" id="sh-name" class="sheet-input sheet-input-full"></div>
-              <div class="sheet-field-trio">
-                <div class="sheet-field-item"><label>IDADE</label><input type="text" id="sh-age" class="sheet-input"></div>
-                <div class="sheet-field-item"><label>ALTURA</label><input type="text" id="sh-height" class="sheet-input"></div>
-                <div class="sheet-field-item"><label>PESO</label><input type="text" id="sh-weight" class="sheet-input"></div>
+          </div>
+          <div class="sheet-block">
+            <div class="sheet-block-title">RECURSOS</div>
+            <div class="sheet-recursos">
+              <div class="sheet-recurso vida">
+                <div class="sheet-recurso-label">VIDA</div>
+                <div class="sheet-recurso-icon">❤️</div>
+                <div class="sheet-recurso-fields">
+                  <input type="number" id="sh-vida" class="sheet-recurso-input" placeholder="60" min="0">
+                  <span>/</span>
+                  <input type="number" id="sh-vida-max" class="sheet-recurso-input" placeholder="60" min="0">
+                </div>
               </div>
-              <div class="sheet-field-row"><label>APARÊNCIA</label><input type="text" id="sh-appearance" class="sheet-input sheet-input-full"></div>
-              <div class="sheet-field-row"><label>HISTÓRICO / ORIGEM</label><textarea id="sh-origin" class="sheet-input sheet-textarea" rows="3"></textarea></div>
+              <div class="sheet-recurso mental-r">
+                <div class="sheet-recurso-label">MENTAL</div>
+                <div class="sheet-recurso-icon">🧠</div>
+                <div class="sheet-recurso-fields">
+                  <input type="number" id="sh-sanidade" class="sheet-recurso-input" placeholder="50" min="0">
+                  <span>/</span>
+                  <input type="number" id="sh-sanidade-max" class="sheet-recurso-input" placeholder="50" min="0">
+                </div>
+              </div>
+              <div class="sheet-recurso energia">
+                <div class="sheet-recurso-label">ENERGIA</div>
+                <div class="sheet-recurso-icon">⚡</div>
+                <div class="sheet-recurso-fields">
+                  <input type="number" id="sh-energia" class="sheet-recurso-input" placeholder="50" min="0">
+                  <span>/</span>
+                  <input type="number" id="sh-energia-max" class="sheet-recurso-input" placeholder="50" min="0">
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        <div class="sheet-block">
-          <div class="sheet-block-title">ATRIBUTOS</div>
-          <div class="sheet-attr-hint">
-            <span id="sh-attr-hint-text">16 pontos para distribuir</span>
-            <span class="sheet-points-tracker">Usados: <strong id="sh-attr-used">0</strong>/<input id="sh-attr-max" class="sheet-max-input gm-only" type="number" value="16" min="1" max="999" oninput="updateAttrPoints();updateAttrHint()"></span>
-          </div>
-          <div class="sheet-attrs">
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">👊</span><div class="sheet-attr-info"><strong>FORÇA</strong><small>Poder físico, força bruta e resistência muscular.</small></div><input type="number" id="sh-forca" class="sheet-attr-input" min="0" value="0" oninput="updateAttrPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🏃</span><div class="sheet-attr-info"><strong>AGILIDADE</strong><small>Velocidade, reflexos e coordenação motora.</small></div><input type="number" id="sh-agilidade" class="sheet-attr-input" min="0" value="0" oninput="updateAttrPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🧠</span><div class="sheet-attr-info"><strong>INTELIGÊNCIA</strong><small>Raciocínio, memória e capacidade de aprendizado.</small></div><input type="number" id="sh-inteligencia" class="sheet-attr-input" min="0" value="0" oninput="updateAttrPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🧿</span><div class="sheet-attr-info"><strong>MENTAL</strong><small>Estabilidade psicológica e controle emocional.</small></div><input type="number" id="sh-mental" class="sheet-attr-input" min="0" value="0" oninput="updateAttrPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">💬</span><div class="sheet-attr-info"><strong>LÁBIA</strong><small>Capacidade de convencer, manipular e influenciar.</small></div><input type="number" id="sh-labia" class="sheet-attr-input" min="0" value="0" oninput="updateAttrPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🌑</span><div class="sheet-attr-info"><strong>FURTIVIDADE</strong><small>Habilidade de agir sem ser percebido.</small></div><input type="number" id="sh-furtividade" class="sheet-attr-input" min="0" value="0" oninput="updateAttrPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🛡️</span><div class="sheet-attr-info"><strong>DEFESA</strong><small>Capacidade de evitar ou reduzir danos físicos.</small></div><input type="number" id="sh-defesa" class="sheet-attr-input" min="0" value="0" oninput="updateAttrPoints()"></div>
-          </div>
-        </div>
-        <div class="sheet-block">
-          <div class="sheet-block-title">PERÍCIAS</div>
-          <div class="sheet-attr-hint">
-            <span id="sh-per-hint-text">7 pontos para distribuir</span>
-            <span class="sheet-points-tracker">Usados: <strong id="sh-per-used">0</strong>/<input id="sh-per-max" class="sheet-max-input gm-only" type="number" value="7" min="1" max="999" oninput="updatePerPoints();updatePerHint()"></span>
-          </div>
-          <div class="sheet-attrs">
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🔍</span><div class="sheet-attr-info"><strong>INVESTIGAÇÃO</strong><small>Procurar pistas, analisar cenas, conectar informações.</small></div><input type="number" id="sh-investigacao" class="sheet-attr-input" min="0" value="0" oninput="updatePerPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🎒</span><div class="sheet-attr-info"><strong>SOBREVIVÊNCIA</strong><small>Suportar situações extremas, improviso e orientação.</small></div><input type="number" id="sh-sobrevivencia" class="sheet-attr-input" min="0" value="0" oninput="updatePerPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🔮</span><div class="sheet-attr-info"><strong>OCULTISMO</strong><small>Rituais, entidades, símbolos e manifestações sobrenaturais.</small></div><input type="number" id="sh-ocultismo" class="sheet-attr-input" min="0" value="0" oninput="updatePerPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">✝️</span><div class="sheet-attr-info"><strong>RELIGIÃO</strong><small>Crenças, exorcismos e práticas espirituais.</small></div><input type="number" id="sh-religiao" class="sheet-attr-input" min="0" value="0" oninput="updatePerPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">🩺</span><div class="sheet-attr-info"><strong>MEDICINA</strong><small>Ferimentos, doenças e primeiros socorros.</small></div><input type="number" id="sh-medicina" class="sheet-attr-input" min="0" value="0" oninput="updatePerPoints()"></div>
-            <div class="sheet-attr-row"><span class="sheet-attr-icon">👁️</span><div class="sheet-attr-info"><strong>INTUIÇÃO</strong><small>Percepção aguçada, pressentimentos e leitura de pessoas.</small></div><input type="number" id="sh-intuicao" class="sheet-attr-input" min="0" value="0" oninput="updatePerPoints()"></div>
-          </div>
-        </div>
-        <div class="sheet-block">
-          <div class="sheet-xp-row">
-            <div class="sheet-xp-item"><div class="sheet-block-title" style="margin-bottom:8px">XP</div><input type="number" id="sh-xp" class="sheet-input" placeholder="0" min="0"></div>
-            <div class="sheet-xp-item"><div class="sheet-block-title" style="margin-bottom:8px">NÍVEL</div><input type="number" id="sh-nivel" class="sheet-input" placeholder="1" min="1" max="20"></div>
           </div>
         </div>
       </div>
-      <!-- COLUNA DIREITA -->
-      <div class="sheet-col-right">
-        <div class="sheet-block">
-          <div class="sheet-recursos">
-            <div class="sheet-recurso vida">
-              <div class="sheet-recurso-label">VIDA</div>
-              <div class="sheet-recurso-icon">❤️</div>
-              <div class="sheet-recurso-fields">
-                <input type="number" id="sh-vida" class="sheet-recurso-input" placeholder="60" min="0">
-                <span>/</span>
-                <input type="number" id="sh-vida-max" class="sheet-recurso-input" placeholder="60" min="0">
+
+      <!-- ABA: STATUS -->
+      <div class="stab" id="stab-status">
+        <div class="stab-inner">
+          <div class="stab-status-cols">
+            <div class="sheet-block">
+              <div class="sheet-block-title">ATRIBUTOS <span style="font-weight:400;color:var(--text-faint)">(máx 10)</span></div>
+              <div class="sheet-attr-hint">
+                <span id="sh-attr-hint-text">16 pontos para distribuir</span>
+                <span class="sheet-points-tracker">Usados: <strong id="sh-attr-used">0</strong>/<input id="sh-attr-max" class="sheet-max-input gm-only" type="number" value="16" min="1" max="999" oninput="updateAttrPoints();updateAttrHint()"></span>
+              </div>
+              <div class="sheet-attrs">
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">👊</span><div class="sheet-attr-info"><strong>FORÇA</strong></div><input type="number" id="sh-forca" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🏃</span><div class="sheet-attr-info"><strong>AGILIDADE</strong></div><input type="number" id="sh-agilidade" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🛡️</span><div class="sheet-attr-info"><strong>DEFESA</strong></div><input type="number" id="sh-defesa" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🧠</span><div class="sheet-attr-info"><strong>INTELIGÊNCIA</strong></div><input type="number" id="sh-inteligencia" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🧿</span><div class="sheet-attr-info"><strong>MENTAL</strong></div><input type="number" id="sh-mental" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">💬</span><div class="sheet-attr-info"><strong>LÁBIA</strong></div><input type="number" id="sh-labia" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🌑</span><div class="sheet-attr-info"><strong>FURTIVIDADE</strong></div><input type="number" id="sh-furtividade" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
               </div>
             </div>
-            <div class="sheet-recurso sanidade">
-              <div class="sheet-recurso-label">SANIDADE</div>
-              <div class="sheet-recurso-icon">🧠</div>
-              <div class="sheet-recurso-fields">
-                <input type="number" id="sh-sanidade" class="sheet-recurso-input" placeholder="50" min="0">
-                <span>/</span>
-                <input type="number" id="sh-sanidade-max" class="sheet-recurso-input" placeholder="50" min="0">
+            <div class="sheet-block">
+              <div class="sheet-block-title">PERÍCIAS <span style="font-weight:400;color:var(--text-faint)">(máx 6)</span></div>
+              <div class="sheet-attr-hint">
+                <span id="sh-per-hint-text">7 pontos para distribuir</span>
+                <span class="sheet-points-tracker">Usados: <strong id="sh-per-used">0</strong>/<input id="sh-per-max" class="sheet-max-input gm-only" type="number" value="7" min="1" max="999" oninput="updatePerPoints();updatePerHint()"></span>
               </div>
-            </div>
-            <div class="sheet-recurso energia">
-              <div class="sheet-recurso-label">ENERGIA</div>
-              <div class="sheet-recurso-icon">⚡</div>
-              <div class="sheet-recurso-fields">
-                <input type="number" id="sh-energia" class="sheet-recurso-input" placeholder="50" min="0">
-                <span>/</span>
-                <input type="number" id="sh-energia-max" class="sheet-recurso-input" placeholder="50" min="0">
+              <div class="sheet-attrs">
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🔍</span><div class="sheet-attr-info"><strong>INVESTIGAÇÃO</strong></div><input type="number" id="sh-investigacao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🎒</span><div class="sheet-attr-info"><strong>SOBREVIVÊNCIA</strong></div><input type="number" id="sh-sobrevivencia" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🔮</span><div class="sheet-attr-info"><strong>OCULTISMO</strong></div><input type="number" id="sh-ocultismo" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">✝️</span><div class="sheet-attr-info"><strong>RELIGIÃO</strong></div><input type="number" id="sh-religiao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">👁️</span><div class="sheet-attr-info"><strong>INTUIÇÃO</strong></div><input type="number" id="sh-intuicao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🩺</span><div class="sheet-attr-info"><strong>MEDICINA</strong></div><input type="number" id="sh-medicina" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
               </div>
             </div>
           </div>
+          <div class="sheet-block">
+            <div class="sheet-block-title">EQUIPAMENTOS</div>
+            <textarea id="sh-equipamentos" class="sheet-input sheet-textarea" rows="3" placeholder="Armas, armaduras, acessórios..."></textarea>
+          </div>
         </div>
-        <div class="sheet-block"><div class="sheet-block-title">INVENTÁRIO</div><div class="sheet-inventory" id="sh-inventory-list"></div></div>
-        <div class="sheet-block"><div class="sheet-block-title">EQUIPAMENTOS</div><textarea id="sh-equipamentos" class="sheet-input sheet-textarea" rows="3" placeholder="Armas, armaduras, acessórios..."></textarea></div>
-        <div class="sheet-block">
-          <div class="sheet-block-title">HABILIDADES</div>
-          <div id="sh-habilidades-list" class="sheet-hab-list"></div>
-          <button class="sheet-add-btn" onclick="addHabilidade()">+ Adicionar Habilidade</button>
-        </div>
-        <div class="sheet-block">
-          <div class="sheet-block-title">PERSONALIDADE</div>
-          <textarea id="sh-personalidade" class="sheet-input sheet-textarea" rows="2" placeholder="Como o personagem se comporta..."></textarea>
-          <div class="sheet-curio-title">CURIOSIDADES</div>
-          <div class="sheet-curio-row"><label>Não pode fazer</label><input type="text" id="sh-nao-pode" class="sheet-input sheet-input-full"></div>
-          <div class="sheet-curio-row"><label>Mais Ama</label><input type="text" id="sh-mais-ama" class="sheet-input sheet-input-full"></div>
-          <div class="sheet-curio-row"><label>Mais Odeia</label><input type="text" id="sh-mais-odeia" class="sheet-input sheet-input-full"></div>
-          <div class="sheet-curio-row"><label>Mais Teme</label><input type="text" id="sh-mais-teme" class="sheet-input sheet-input-full"></div>
-        </div>
-        <div class="sheet-block"><div class="sheet-block-title">HISTÓRIA</div><textarea id="sh-historia" class="sheet-input sheet-textarea" rows="5" placeholder="A história do personagem..."></textarea></div>
-        <div class="sheet-block"><div class="sheet-block-title">ANOTAÇÕES</div><textarea id="sh-anotacoes" class="sheet-input sheet-textarea sheet-anotacoes" placeholder="Anotações livres, pistas, observações da sessão..."></textarea></div>
       </div>
+
+      <!-- ABA: INVENTÁRIO -->
+      <div class="stab" id="stab-inventario">
+        <div class="stab-inner">
+          <div class="sheet-block">
+            <div class="sheet-block-title">INVENTÁRIO</div>
+            <div class="sheet-inventory" id="sh-inventory-list"></div>
+            <button class="sheet-add-btn" onclick="addInventoryItem()">+ Adicionar Item</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ABA: HABILIDADES -->
+      <div class="stab" id="stab-habilidades">
+        <div class="stab-inner">
+          <div class="sheet-block">
+            <div class="sheet-block-title">HABILIDADES</div>
+            <div id="sh-habilidades-list" class="sheet-hab-list"></div>
+            <button class="sheet-add-btn" onclick="addHabilidade()">+ Adicionar Habilidade</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ABA: HISTÓRIA -->
+      <div class="stab" id="stab-historia">
+        <div class="stab-inner">
+          <div class="sheet-block">
+            <div class="sheet-block-title">PERSONALIDADE</div>
+            <textarea id="sh-personalidade" class="sheet-input sheet-textarea" rows="3" placeholder="Como o personagem se comporta, seus traços de personalidade..."></textarea>
+            <div class="sheet-curio-title">CURIOSIDADES</div>
+            <div class="sheet-curio-row"><label>Não pode fazer</label><input type="text" id="sh-nao-pode" class="sheet-input sheet-input-full"></div>
+            <div class="sheet-curio-row"><label>Mais Ama</label><input type="text" id="sh-mais-ama" class="sheet-input sheet-input-full"></div>
+            <div class="sheet-curio-row"><label>Mais Odeia</label><input type="text" id="sh-mais-odeia" class="sheet-input sheet-input-full"></div>
+            <div class="sheet-curio-row"><label>Mais Teme</label><input type="text" id="sh-mais-teme" class="sheet-input sheet-input-full"></div>
+          </div>
+          <div class="sheet-block">
+            <div class="sheet-block-title">HISTÓRIA DO PERSONAGEM</div>
+            <textarea id="sh-historia" class="sheet-input sheet-textarea" rows="8" placeholder="A história e trajetória do personagem..."></textarea>
+          </div>
+          <div class="sheet-block">
+            <div class="sheet-block-title">HISTÓRICO / ORIGEM</div>
+            <textarea id="sh-origin" class="sheet-input sheet-textarea" rows="4" placeholder="De onde vem, como chegou até aqui..."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- ABA: SEU ESPAÇO -->
+      <div class="stab" id="stab-espaco">
+        <div class="stab-inner">
+          <div class="sheet-block">
+            <div class="sheet-block-title">ANOTAÇÕES LIVRES</div>
+            <textarea id="sh-anotacoes" class="sheet-input sheet-textarea sheet-anotacoes" placeholder="Pistas da sessão, observações, notas pessoais, rascunhos..."></textarea>
+          </div>
+        </div>
+      </div>
+
     </div>
     <div class="sheet-footer">
       <button class="btn-cancel" onclick="closeModal('modal-sheet')">Fechar</button>
@@ -376,6 +535,21 @@
   </div>
 </div>
 
+<!-- ===== MODAL: QR CODE ===== -->
+<div id="modal-qr" class="modal hidden">
+  <div class="sheet-overlay" onclick="closeModal('modal-qr')"></div>
+  <div class="qr-box">
+    <div class="qr-title">📱 Escaneie para entrar</div>
+    <div class="qr-subtitle">Aponte a câmera do celular para o código abaixo</div>
+    <div class="qr-img-wrap">
+      <canvas id="qr-canvas"></canvas>
+    </div>
+    <div class="qr-url" id="qr-url-text"></div>
+    <button class="qr-close-btn" onclick="closeModal('modal-qr')">Fechar</button>
+  </div>
+</div>
+
+<script src="/static/js/qrgen.js"></script>
 <script>window.ROOM_ID = "{{ room_id }}";</script>
 <script src="/static/js/room.js"></script>
 </body>

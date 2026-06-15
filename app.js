@@ -325,6 +325,37 @@ io.on('connection', (socket) => {
     };
     io.to(data.room_id).emit('new_message', msg);
   });
+
+  socket.on('delete_message', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player) return;
+    const idx = room.messages.findIndex(m => m.id === data.msg_id);
+    if (idx === -1) return;
+    const msg = room.messages[idx];
+    const isAuthor = msg.author === player.name || msg.realAuthor === player.name;
+    if (!isAuthor && !player.is_gm) return;
+    room.messages.splice(idx, 1);
+    io.to(data.room_id).emit('message_deleted', { msg_id: data.msg_id });
+    saveRooms();
+  });
+
+  socket.on('edit_message', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player) return;
+    const msg = room.messages.find(m => m.id === data.msg_id);
+    if (!msg) return;
+    if (msg.type === 'roll' || msg.type === 'system' || msg.type === 'file') return;
+    const isAuthor = msg.author === player.name || msg.realAuthor === player.name;
+    if (!isAuthor) return;
+    msg.text = String(data.text || '').slice(0, 700);
+    msg.edited = true;
+    io.to(data.room_id).emit('message_edited', { msg_id: data.msg_id, text: msg.text });
+    saveRooms();
+  });
 });
 
 function createServer(port) {

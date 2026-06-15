@@ -168,17 +168,87 @@ socket.on('new_message', _msgHandler);
 let _atBottom = true;
 let _unreadCount = 0;
 
-function _addPinBtn(row, text, author) {
-  if (!isGM) return;
+function _addMsgActions(row, msg) {
+  const myName = playerName;
+  const authorName = msg.realAuthor || msg.author;
+  const isAuthor = authorName === myName;
+  const canDelete = isGM || isAuthor;
+  const canEdit = isAuthor && msg.type !== 'roll' && msg.type !== 'system' && msg.type !== 'file';
+  const canPin = isGM && msg.type !== 'system';
+  if (!canDelete && !canEdit && !canPin) return;
+
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
-  const btn = document.createElement('button');
-  btn.className = 'msg-pin-btn';
-  btn.textContent = '📌';
-  btn.title = 'Repostar como destaque';
-  btn.addEventListener('click', () => repostMsg(text, author));
-  actions.appendChild(btn);
+
+  if (canPin) {
+    const pinBtn = document.createElement('button');
+    pinBtn.className = 'msg-pin-btn';
+    pinBtn.textContent = '📌';
+    pinBtn.title = 'Repostar como destaque';
+    pinBtn.addEventListener('click', () => repostMsg(msg.text, authorName));
+    actions.appendChild(pinBtn);
+  }
+  if (canEdit) {
+    const editBtn = document.createElement('button');
+    editBtn.className = 'msg-pin-btn';
+    editBtn.textContent = '✏️';
+    editBtn.title = 'Editar mensagem';
+    editBtn.addEventListener('click', () => startEditMsg(msg.id, row));
+    actions.appendChild(editBtn);
+  }
+  if (canDelete) {
+    const delBtn = document.createElement('button');
+    delBtn.className = 'msg-pin-btn';
+    delBtn.textContent = '🗑️';
+    delBtn.title = 'Apagar mensagem';
+    delBtn.addEventListener('click', () => {
+      socket.emit('delete_message', { room_id: ROOM_ID, msg_id: msg.id });
+    });
+    actions.appendChild(delBtn);
+  }
   row.appendChild(actions);
+}
+
+function startEditMsg(msgId, row) {
+  const bodyEl = row.querySelector('.msg-body');
+  if (!bodyEl || row.querySelector('.msg-edit-input')) return;
+  const origText = bodyEl.dataset.rawText || bodyEl.textContent;
+  const origHTML = bodyEl.innerHTML;
+
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = origText;
+  inp.maxLength = 700;
+  inp.className = 'msg-edit-input';
+
+  const ok = document.createElement('button');
+  ok.textContent = '✓'; ok.className = 'msg-edit-ok';
+  const cancel = document.createElement('button');
+  cancel.textContent = '✕'; cancel.className = 'msg-edit-cancel';
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'msg-edit-btns';
+  btnRow.appendChild(ok);
+  btnRow.appendChild(cancel);
+  bodyEl.innerHTML = '';
+  bodyEl.appendChild(inp);
+  bodyEl.appendChild(btnRow);
+  inp.focus(); inp.select();
+
+  const doConfirm = () => {
+    const newText = inp.value.trim();
+    if (!newText) return;
+    socket.emit('edit_message', { room_id: ROOM_ID, msg_id: msgId, text: newText });
+    bodyEl.innerHTML = origHTML;
+  };
+  const doCancel = () => { bodyEl.innerHTML = origHTML; };
+
+  ok.addEventListener('click', doConfirm);
+  cancel.addEventListener('click', doCancel);
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); doConfirm(); }
+    if (e.key === 'Escape') doCancel();
+  });
 }
 
 function appendMessage(msg) {
@@ -187,6 +257,7 @@ function appendMessage(msg) {
   if (msg.type === 'system') {
     const el = document.createElement('div');
     el.className = 'msg-system';
+    if (msg.id) el.dataset.msgId = msg.id;
     el.textContent = msg.text;
     list.appendChild(el);
     scrollMessages();
@@ -195,22 +266,25 @@ function appendMessage(msg) {
   if (msg.type === 'highlight') {
     const row = document.createElement('div');
     row.className = 'msg-highlight';
+    if (msg.id) row.dataset.msgId = msg.id;
     const safeText = (msg.text || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeOrig = (msg.origAuthor || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     row.innerHTML = `<div class="msg-highlight-label">📌 Destaque por ${msg.author}</div><div class="msg-highlight-orig">originalmente de <strong>${safeOrig}</strong></div><div class="msg-highlight-text">${safeText}</div>`;
+    _addMsgActions(row, msg);
     list.appendChild(row);
     scrollMessages();
     return;
   }
   const row = document.createElement('div');
+  if (msg.id) row.dataset.msgId = msg.id;
   const authorColor = getAuthorColor(msg.author);
   const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
   if (msg.type === 'narrador') {
     row.className = 'msg-narrador';
     const safeText = (msg.text || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    row.innerHTML = `<em class="narrador-text">${safeText}</em>`;
-    _addPinBtn(row, msg.text, msg.realAuthor || msg.author);
+    row.innerHTML = `<em class="narrador-text msg-body" data-raw-text="${(msg.text||'').replace(/"/g,'&quot;')}">${safeText}</em>`;
+    _addMsgActions(row, msg);
     list.appendChild(row);
     scrollMessages();
     return;
@@ -238,7 +312,7 @@ function appendMessage(msg) {
           <span class="msg-author" style="color:#ff9800">${msg.author}</span>
           <span class="msg-time">${time}</span>
         </div>
-        <div class="msg-body" style="font-style:italic">${safeText}</div>
+        <div class="msg-body" style="font-style:italic" data-raw-text="${(msg.text||'').replace(/"/g,'&quot;')}">${safeText}</div>
       </div>`;
   } else if (msg.type === 'file') {
     const isImg = msg.filetype && msg.filetype.startsWith('image/');
@@ -265,10 +339,10 @@ function appendMessage(msg) {
           <span class="msg-author" style="color:${authorColor}">${msg.author}</span>
           <span class="msg-time">${time}</span>
         </div>
-        <div class="msg-body">${safeText}</div>
+        <div class="msg-body" data-raw-text="${(msg.text||'').replace(/"/g,'&quot;')}">${safeText}</div>
       </div>`;
   }
-  _addPinBtn(row, msg.text, msg.author);
+  _addMsgActions(row, msg);
   list.appendChild(row);
   scrollMessages();
 }
@@ -327,6 +401,17 @@ function sendChat() {
   const input = document.getElementById('chat-input');
   const text = (input.value || '').trim();
   if (!text) return;
+
+  // Comandos /rollDX
+  const diceMatch = text.match(/^\/roll[Dd](\d+)(?:\s+(\d+))?$/);
+  if (diceMatch) {
+    const sides = parseInt(diceMatch[1]);
+    const count = parseInt(diceMatch[2]) || 1;
+    if (sides > 0 && sides <= 1000) rollDice(sides, count, 0);
+    input.value = '';
+    return;
+  }
+
   if (chatMode === 'persona') {
     const persona = (document.getElementById('persona-name')?.value || '').trim();
     if (!persona) { document.getElementById('persona-name')?.focus(); return; }
@@ -338,6 +423,23 @@ function sendChat() {
   }
   input.value = '';
 }
+
+socket.on('message_deleted', (data) => {
+  const el = document.querySelector(`[data-msg-id="${data.msg_id}"]`);
+  if (el) el.remove();
+});
+
+socket.on('message_edited', (data) => {
+  const el = document.querySelector(`[data-msg-id="${data.msg_id}"]`);
+  if (!el) return;
+  const body = el.querySelector('.msg-body');
+  if (!body) return;
+  const safeText = (data.text || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const wasItalic = body.style.fontStyle === 'italic';
+  body.dataset.rawText = data.text;
+  body.innerHTML = safeText + ' <span class="msg-edited">(editado)</span>';
+  if (wasItalic) body.style.fontStyle = 'italic';
+});
 
 function chatKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }

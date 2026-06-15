@@ -3,5 +3,5 @@ services:
     name: mesa-rpg
     env: node
     buildCommand: npm install --omit=dev
-    startCommand: node app.js
+    startCommand: ls -la && node app.js
     plan: free

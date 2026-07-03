@@ -979,7 +979,7 @@ body.is-gm .sheet-btn { display: none !important; }
 
 .monsters-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px; align-items: start;
 }
 
@@ -1168,7 +1168,7 @@ body.is-gm .sheet-btn { display: none !important; }
 #view-chat { position: relative; }
 
 #turn-queue {
-  position: absolute; top: 12px; right: 12px;
+  position: fixed; top: 60px; right: 12px;
   width: 260px; height: 320px;
   min-width: 200px; min-height: 100px;
   background: var(--bg-elevated);

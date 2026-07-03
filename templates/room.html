@@ -38,7 +38,8 @@
     <button class="nav-btn sheet-btn" onclick="openSheet()" title="Minha Ficha">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
     </button>
-    <div class="nav-avatar" id="nav-avatar" title="Você">?</div>
+    <div class="nav-avatar" id="nav-avatar" title="Clique para definir foto" onclick="gmAvatarClick()">?</div>
+    <input type="file" id="gm-avatar-upload" accept="image/*" style="display:none" onchange="setGMAvatar(event)">
   </div>
 </nav>
 
@@ -76,25 +77,25 @@
     </div>
   </header>
 
+  <!-- Fila de turno flutuante — fora das views, visível em todas as abas -->
+  <div id="turn-queue" class="hidden gm-only">
+    <div id="tq-resize-nw" class="tq-resize-nw" title="Redimensionar"></div>
+    <div class="tq-header" id="tq-header">
+      <span class="tq-title">⚔️ FILA DE TURNO</span>
+      <div class="tq-header-btns">
+        <button class="tq-hbtn tq-addp-btn" onclick="tqOpenDrop('player')" title="Adicionar jogador">+J</button>
+        <button class="tq-hbtn tq-addm-btn" onclick="tqOpenDrop('monster')" title="Adicionar monstro">+M</button>
+        <button class="tq-hbtn tq-clear-btn" onclick="tqClearAll()" title="Limpar fila">🗑</button>
+        <button class="tq-hbtn tq-next-btn" onclick="nextCombatTurn()" title="Próximo turno">▶</button>
+        <button class="tq-hbtn tq-close-btn" onclick="toggleTurnQueue()" title="Fechar">✕</button>
+      </div>
+    </div>
+    <div id="tq-combatants" class="tq-combatants"></div>
+    <div id="tq-add-drop" class="tq-add-drop hidden"></div>
+  </div>
+
   <!-- ===== VIEW: CHAT ===== -->
   <div id="view-chat" class="view active">
-
-    <!-- Fila de turno flutuante (só GM) -->
-    <div id="turn-queue" class="hidden gm-only">
-      <div id="tq-resize-nw" class="tq-resize-nw" title="Redimensionar"></div>
-      <div class="tq-header" id="tq-header">
-        <span class="tq-title">⚔️ FILA DE TURNO</span>
-        <div class="tq-header-btns">
-          <button class="tq-hbtn tq-addp-btn" onclick="tqOpenDrop('player')" title="Adicionar jogador">+J</button>
-          <button class="tq-hbtn tq-addm-btn" onclick="tqOpenDrop('monster')" title="Adicionar monstro">+M</button>
-          <button class="tq-hbtn tq-clear-btn" onclick="tqClearAll()" title="Limpar fila">🗑</button>
-          <button class="tq-hbtn tq-next-btn" onclick="nextCombatTurn()" title="Próximo turno">▶</button>
-          <button class="tq-hbtn tq-close-btn" onclick="toggleTurnQueue()" title="Fechar">✕</button>
-        </div>
-      </div>
-      <div id="tq-combatants" class="tq-combatants"></div>
-      <div id="tq-add-drop" class="tq-add-drop hidden"></div>
-    </div>
 
     <div id="messages-area">
       <div id="messages-list"></div>
@@ -267,13 +268,29 @@
   <div id="dice-result-display"></div>
 </div>
 
-<!-- ===== MODAL: GM SHEET ===== -->
+<!-- ===== MODAL: GM SHEET (ficha completa, só leitura) ===== -->
 <div id="modal-gm-sheet" class="modal hidden">
-  <div class="modal-box" style="max-width:500px;max-height:85vh;overflow-y:auto">
-    <h3 id="gm-sheet-title">📋 Ficha do Jogador</h3>
-    <div id="gm-sheet-content"></div>
-    <div class="modal-actions">
+  <div class="sheet-overlay" onclick="closeModal('modal-gm-sheet')"></div>
+  <div class="sheet-fullbox">
+    <div class="sheet-header-bar">
+      <div class="sheet-title-area">
+        <div class="sheet-ornament">✦</div>
+        <h2 class="sheet-main-title" id="gm-sheet-title">FICHA DO JOGADOR</h2>
+        <div class="sheet-ornament">✦</div>
+      </div>
+      <div id="gm-sheet-classes" class="sheet-classe-box"></div>
+    </div>
+    <nav class="sheet-tabs" id="gm-sheet-tabs">
+      <button class="sheet-tab active" onclick="switchGMTab('perfil',this)">PERFIL</button>
+      <button class="sheet-tab" onclick="switchGMTab('status',this)">STATUS</button>
+      <button class="sheet-tab" onclick="switchGMTab('inventario',this)">INVENTÁRIO</button>
+      <button class="sheet-tab" onclick="switchGMTab('habilidades',this)">HABILIDADES</button>
+      <button class="sheet-tab" onclick="switchGMTab('historia',this)">HISTÓRIA</button>
+    </nav>
+    <div class="sheet-body" id="gm-sheet-body"></div>
+    <div class="sheet-footer">
       <button class="btn-cancel" onclick="closeModal('modal-gm-sheet')">Fechar</button>
+      <button class="btn-confirm" id="gm-edit-vitals-btn">✏️ Editar Vitais</button>
     </div>
   </div>
 </div>

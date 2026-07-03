@@ -539,8 +539,9 @@ let isPanning = false, panStart = { x: 0, y: 0 };
 let currentTool = 'select';
 let tokens = {};
 let pins = {};
-let selectedTokenId = null;
+let selectedTokenIds = new Set();
 let draggingToken = null, dragOffX = 0, dragOffY = 0;
+let isRubberBand = false, rubberStart = null, rubberEnd = null;
 let contextMenuToken = null;
 let contextMenuPin = null;
 let pendingPinPos = null;
@@ -599,6 +600,22 @@ function drawMap() {
   for (const pin of Object.values(pins)) drawPin(pin);
   for (const tok of Object.values(tokens)) drawToken(tok);
   if (currentTool === 'measure' && measureStart && measureEnd) drawMeasure();
+  if (isRubberBand && rubberStart && rubberEnd) drawRubberBand();
+}
+
+function drawRubberBand() {
+  const x1 = rubberStart.x * mapZoom + mapOffset.x;
+  const y1 = rubberStart.y * mapZoom + mapOffset.y;
+  const x2 = rubberEnd.x * mapZoom + mapOffset.x;
+  const y2 = rubberEnd.y * mapZoom + mapOffset.y;
+  mapCtx.save();
+  mapCtx.strokeStyle = '#7c6af7';
+  mapCtx.fillStyle = 'rgba(124,106,247,0.12)';
+  mapCtx.lineWidth = 1.5;
+  mapCtx.setLineDash([5, 3]);
+  mapCtx.fillRect(Math.min(x1,x2), Math.min(y1,y2), Math.abs(x2-x1), Math.abs(y2-y1));
+  mapCtx.strokeRect(Math.min(x1,x2), Math.min(y1,y2), Math.abs(x2-x1), Math.abs(y2-y1));
+  mapCtx.restore();
 }
 
 function drawGrid() {
@@ -685,7 +702,7 @@ function drawToken(tok) {
   mapCtx.arc(sx, sy, sr, 0, Math.PI * 2);
   mapCtx.fillStyle = tok.color || '#7c6af7';
   mapCtx.fill();
-  if (tok.id === selectedTokenId) {
+  if (selectedTokenIds.has(tok.id)) {
     mapCtx.strokeStyle = '#7c6af7'; mapCtx.lineWidth = 3; mapCtx.stroke();
   } else {
     mapCtx.strokeStyle = 'rgba(255,255,255,0.3)'; mapCtx.lineWidth = 1.5; mapCtx.stroke();
@@ -818,7 +835,8 @@ function onMapMouseDown(e) {
     isPanning = true; panStart = { x: e.clientX - mapOffset.x, y: e.clientY - mapOffset.y };
     mapCanvas.style.cursor = 'grabbing'; return;
   }
-  const mp = screenToMap(e.clientX - mapCanvas.getBoundingClientRect().left, e.clientY - mapCanvas.getBoundingClientRect().top);
+  const rect = mapCanvas.getBoundingClientRect();
+  const mp = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
   if (currentTool === 'measure') { measureStart = { ...mp }; measureEnd = { ...mp }; return; }
   if (currentTool === 'move') {
     isPanning = true; panStart = { x: e.clientX - mapOffset.x, y: e.clientY - mapOffset.y };
@@ -831,10 +849,19 @@ function onMapMouseDown(e) {
   }
   const tok = getTokenAt(mp.x, mp.y);
   if (tok) {
+    // Se já está selecionado, arrasta todo o grupo; senão seleciona só ele
+    if (!selectedTokenIds.has(tok.id)) {
+      selectedTokenIds.clear();
+      selectedTokenIds.add(tok.id);
+    }
     draggingToken = tok; dragOffX = mp.x - tok.x; dragOffY = mp.y - tok.y;
-    selectedTokenId = tok.id; drawMap(); return;
+    drawMap(); return;
   }
-  selectedTokenId = null; drawMap();
+  // Clicou em espaço vazio — inicia rubber-band
+  selectedTokenIds.clear();
+  isRubberBand = true;
+  rubberStart = { ...mp }; rubberEnd = { ...mp };
+  drawMap();
 }
 
 function onMapMouseMove(e) {
@@ -847,8 +874,18 @@ function onMapMouseMove(e) {
   if (draggingToken) {
     const mp = screenToMap(mx, my);
     const snapped = snapToGridPos(mp.x - dragOffX, mp.y - dragOffY);
-    draggingToken.x = snapped.x; draggingToken.y = snapped.y;
+    const dx = snapped.x - draggingToken.x;
+    const dy = snapped.y - draggingToken.y;
+    if (dx !== 0 || dy !== 0) {
+      for (const id of selectedTokenIds) {
+        if (tokens[id]) { tokens[id].x += dx; tokens[id].y += dy; }
+      }
+      draggingToken = tokens[draggingToken.id];
+    }
     drawMap(); return;
+  }
+  if (isRubberBand && rubberStart) {
+    rubberEnd = screenToMap(mx, my); drawMap(); return;
   }
   if (currentTool === 'measure' && measureStart) {
     measureEnd = screenToMap(mx, my); drawMap();
@@ -859,8 +896,19 @@ function onMapMouseMove(e) {
 
 function onMapMouseUp(e) {
   if (draggingToken) {
-    socket.emit('token_move', { room_id: ROOM_ID, token_id: draggingToken.id, x: draggingToken.x, y: draggingToken.y });
+    for (const id of selectedTokenIds) {
+      if (tokens[id]) socket.emit('token_move', { room_id: ROOM_ID, token_id: id, x: tokens[id].x, y: tokens[id].y });
+    }
     draggingToken = null;
+  }
+  if (isRubberBand && rubberStart && rubberEnd) {
+    const minX = Math.min(rubberStart.x, rubberEnd.x), maxX = Math.max(rubberStart.x, rubberEnd.x);
+    const minY = Math.min(rubberStart.y, rubberEnd.y), maxY = Math.max(rubberStart.y, rubberEnd.y);
+    for (const tok of Object.values(tokens)) {
+      if (tok.x >= minX && tok.x <= maxX && tok.y >= minY && tok.y <= maxY) selectedTokenIds.add(tok.id);
+    }
+    isRubberBand = false; rubberStart = null; rubberEnd = null;
+    drawMap();
   }
   if (isPanning) { mapCanvas.style.cursor = currentTool === 'move' ? 'grab' : 'crosshair'; }
   isPanning = false;
@@ -1245,33 +1293,211 @@ function requestPlayerSheet(sid) {
   socket.emit('request_player_sheet', { room_id: ROOM_ID, target_sid: sid });
 }
 
+function switchGMTab(name, btn) {
+  document.querySelectorAll('#gm-sheet-tabs .sheet-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#gm-sheet-body .gm-stab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const tab = document.getElementById('gms-' + name);
+  if (tab) tab.classList.add('active');
+}
+
+function _gmRO(val, cls = 'sheet-input') {
+  const v = (val ?? '').toString();
+  return `<input type="text" class="${cls}" value="${v.replace(/"/g,'&quot;')}" readonly>`;
+}
+function _gmNum(val, cls = 'sheet-attr-input') {
+  return `<input type="number" class="${cls}" value="${val ?? 0}" readonly>`;
+}
+function _gmTA(val, cls = 'sheet-input sheet-textarea', rows = 3) {
+  const v = (val ?? '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return `<textarea class="${cls}" rows="${rows}" readonly>${v}</textarea>`;
+}
+
 socket.on('player_sheet_data', (data) => {
   const modal = document.getElementById('modal-gm-sheet');
   const title = document.getElementById('gm-sheet-title');
-  const content = document.getElementById('gm-sheet-content');
+  const body  = document.getElementById('gm-sheet-body');
   const p = players[data.sid];
-  title.textContent = '📋 Ficha de ' + (p?.name || 'Jogador');
+  title.textContent = (p?.name || 'Jogador').toUpperCase();
   const s = data.sheet || {};
-  content.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      ${sheetRow('Nome', s.name)}
-      ${sheetRow('Idade', s.age)} ${sheetRow('Altura', s.height)} ${sheetRow('Peso', s.weight)}
-      ${sheetRow('Aparência', s.appearance)}
-      <tr><td colspan="2" style="padding-top:12px;font-weight:700;color:var(--text-faint);font-size:10px;letter-spacing:1px">ATRIBUTOS</td></tr>
-      ${sheetRow('Força', s.forca)} ${sheetRow('Agilidade', s.agilidade)} ${sheetRow('Inteligência', s.inteligencia)}
-      ${sheetRow('Mental', s.mental)} ${sheetRow('Lábia', s.labia)} ${sheetRow('Furtividade', s.furtividade)} ${sheetRow('Defesa', s.defesa)}
-      <tr><td colspan="2" style="padding-top:12px;font-weight:700;color:var(--text-faint);font-size:10px;letter-spacing:1px">VITAIS</td></tr>
-      ${sheetRow('Vida', (s.vida||'?') + '/' + (s['vida-max']||'?'))}
-      ${sheetRow('Sanidade', (s.sanidade||'?') + '/' + (s['sanidade-max']||'?'))}
-      ${sheetRow('Energia', (s.energia||'?') + '/' + (s['energia-max']||'?'))}
-    </table>`;
+
+  // Classes
+  const clsBox = document.getElementById('gm-sheet-classes');
+  if (clsBox) {
+    const cls = s.classes || {};
+    clsBox.innerHTML = `<div class="sheet-section-label">CLASSE</div>
+      ${['sentitivo','possuido','feiticeiro','santificado'].map(k =>
+        `<label class="sheet-check"><input type="checkbox" ${cls[k]?'checked':''} disabled> ${k[0].toUpperCase()+k.slice(1)}</label>`
+      ).join('')}`;
+  }
+
+  // Inventário
+  const invHTML = (s.inventory || []).filter(Boolean).map(item =>
+    `<div class="inv-item"><input type="text" value="${(item||'').replace(/"/g,'&quot;')}" class="sheet-input" readonly></div>`
+  ).join('') || '<div style="color:var(--text-faint);font-size:12px;padding:4px">Sem itens</div>';
+
+  // Habilidades
+  const habHTML = (s.habilidades || []).map(h => `
+    <div class="hab-item">
+      <div class="hab-header"><input type="text" class="hab-name" value="${(h.name||'').replace(/"/g,'&quot;')}" readonly></div>
+      <div class="hab-sub-label">PASSIVA</div>
+      <textarea class="hab-passiva" readonly>${escHtml(h.passiva||h.desc||'')}</textarea>
+      <div class="hab-sub-label">CENTRAL</div>
+      <textarea class="hab-central" readonly>${escHtml(h.central||'')}</textarea>
+      <div class="hab-gasto-row"><span class="hab-sub-label" style="margin:0;min-width:44px">GASTO</span>
+      <input type="text" class="hab-cost" value="${(h.cost||'').replace(/"/g,'&quot;')}" readonly></div>
+    </div>`).join('') || '<div style="color:var(--text-faint);font-size:12px;padding:4px">Sem habilidades</div>';
+
+  body.innerHTML = `
+    <style>
+      .gm-stab { display:none }
+      .gm-stab.active { display:block }
+      .gm-stab .sheet-input[readonly], .gm-stab textarea[readonly],
+      .gm-stab .sheet-attr-input[readonly], .gm-stab .sheet-recurso-input[readonly],
+      .gm-stab .hab-name[readonly], .gm-stab .hab-passiva[readonly],
+      .gm-stab .hab-central[readonly], .gm-stab .hab-cost[readonly],
+      .gm-stab .inv-item input[readonly] {
+        opacity:0.85; cursor:default; pointer-events:none;
+      }
+    </style>
+
+    <!-- PERFIL -->
+    <div class="gm-stab active" id="gms-perfil">
+      <div class="stab-inner">
+        <div class="sheet-block">
+          <div class="sheet-block-title">DADOS DO PERSONAGEM</div>
+          <div class="sheet-avatar-row">
+            <div class="sheet-avatar-slot" style="pointer-events:none">
+              <div class="sheet-avatar-viewport">
+                ${s.avatar ? `<img src="${s.avatar}" style="width:100%;height:100%;object-fit:cover;display:block">` : '<span style="color:var(--text-faint);font-size:11px">SEM FOTO</span>'}
+              </div>
+            </div>
+            <div class="sheet-dados-fields">
+              <div class="sheet-field-row"><label>NOME</label>${_gmRO(s.name,'sheet-input sheet-input-full')}</div>
+              <div class="sheet-field-trio">
+                <div class="sheet-field-item"><label>NÍVEL</label>${_gmRO(s.nivel,'sheet-input')}</div>
+                <div class="sheet-field-item"><label>XP</label>${_gmRO(s.xp,'sheet-input')}</div>
+                <div class="sheet-field-item"><label>IDADE</label>${_gmRO(s.age,'sheet-input')}</div>
+              </div>
+              <div class="sheet-field-trio">
+                <div class="sheet-field-item"><label>ALTURA</label>${_gmRO(s.height,'sheet-input')}</div>
+                <div class="sheet-field-item"><label>PESO</label>${_gmRO(s.weight,'sheet-input')}</div>
+                <div class="sheet-field-item"><label>PROFISSÃO</label>${_gmRO(s.profissao,'sheet-input')}</div>
+              </div>
+              <div class="sheet-field-row"><label>APARÊNCIA</label>${_gmRO(s.appearance,'sheet-input sheet-input-full')}</div>
+            </div>
+          </div>
+        </div>
+        <div class="sheet-block">
+          <div class="sheet-block-title">RECURSOS</div>
+          <div class="sheet-recursos">
+            <div class="sheet-recurso vida">
+              <div class="sheet-recurso-label">VIDA</div>
+              <div class="sheet-recurso-icon">❤️</div>
+              <div class="sheet-recurso-fields">${_gmNum(s.vida,'sheet-recurso-input')}<span>/</span>${_gmNum(s['vida-max'],'sheet-recurso-input')}</div>
+            </div>
+            <div class="sheet-recurso mental-r">
+              <div class="sheet-recurso-label">MENTAL</div>
+              <div class="sheet-recurso-icon">🧠</div>
+              <div class="sheet-recurso-fields">${_gmNum(s.sanidade,'sheet-recurso-input')}<span>/</span>${_gmNum(s['sanidade-max'],'sheet-recurso-input')}</div>
+            </div>
+            <div class="sheet-recurso energia">
+              <div class="sheet-recurso-label">ENERGIA</div>
+              <div class="sheet-recurso-icon">⚡</div>
+              <div class="sheet-recurso-fields">${_gmNum(s.energia,'sheet-recurso-input')}<span>/</span>${_gmNum(s['energia-max'],'sheet-recurso-input')}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATUS -->
+    <div class="gm-stab" id="gms-status">
+      <div class="stab-inner">
+        <div class="stab-status-cols">
+          <div class="sheet-block">
+            <div class="sheet-block-title">ATRIBUTOS</div>
+            <div class="sheet-attrs">
+              ${[['👊','FORÇA','forca'],['🏃','AGILIDADE','agilidade'],['🛡️','DEFESA','defesa'],
+                 ['🧠','INTELIGÊNCIA','inteligencia'],['🧿','MENTAL','mental'],
+                 ['💬','LÁBIA','labia'],['🌑','FURTIVIDADE','furtividade']].map(([icon,label,key]) =>
+                `<div class="sheet-attr-row"><span class="sheet-attr-icon">${icon}</span>
+                 <div class="sheet-attr-info"><strong>${label}</strong></div>
+                 ${_gmNum(s[key],'sheet-attr-input')}</div>`).join('')}
+            </div>
+          </div>
+          <div class="sheet-block">
+            <div class="sheet-block-title">PERÍCIAS</div>
+            <div class="sheet-attrs">
+              ${[['🔍','INVESTIGAÇÃO','investigacao'],['🎒','SOBREVIVÊNCIA','sobrevivencia'],
+                 ['🔮','OCULTISMO','ocultismo'],['✝️','RELIGIÃO','religiao'],
+                 ['👁️','INTUIÇÃO','intuicao'],['🩺','MEDICINA','medicina']].map(([icon,label,key]) =>
+                `<div class="sheet-attr-row"><span class="sheet-attr-icon">${icon}</span>
+                 <div class="sheet-attr-info"><strong>${label}</strong></div>
+                 ${_gmNum(s[key],'sheet-attr-input')}</div>`).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="sheet-block">
+          <div class="sheet-block-title">EQUIPAMENTOS</div>
+          ${_gmTA(s.equipamentos,'sheet-input sheet-textarea',3)}
+        </div>
+      </div>
+    </div>
+
+    <!-- INVENTÁRIO -->
+    <div class="gm-stab" id="gms-inventario">
+      <div class="stab-inner">
+        <div class="sheet-block">
+          <div class="sheet-block-title">INVENTÁRIO</div>
+          <div class="sheet-inventory">${invHTML}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HABILIDADES -->
+    <div class="gm-stab" id="gms-habilidades">
+      <div class="stab-inner">
+        <div class="sheet-block">
+          <div class="sheet-block-title">HABILIDADES</div>
+          <div class="sheet-hab-list">${habHTML}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTÓRIA -->
+    <div class="gm-stab" id="gms-historia">
+      <div class="stab-inner">
+        <div class="sheet-block">
+          <div class="sheet-block-title">PERSONALIDADE</div>
+          ${_gmTA(s.personalidade,'sheet-input sheet-textarea',3)}
+          <div class="sheet-curio-title">CURIOSIDADES</div>
+          <div class="sheet-curio-row"><label>Não pode fazer</label>${_gmRO(s['nao-pode'],'sheet-input sheet-input-full')}</div>
+          <div class="sheet-curio-row"><label>Mais Ama</label>${_gmRO(s['mais-ama'],'sheet-input sheet-input-full')}</div>
+          <div class="sheet-curio-row"><label>Mais Odeia</label>${_gmRO(s['mais-odeia'],'sheet-input sheet-input-full')}</div>
+          <div class="sheet-curio-row"><label>Mais Teme</label>${_gmRO(s['mais-teme'],'sheet-input sheet-input-full')}</div>
+        </div>
+        <div class="sheet-block">
+          <div class="sheet-block-title">HISTÓRIA DO PERSONAGEM</div>
+          ${_gmTA(s.historia,'sheet-input sheet-textarea',8)}
+        </div>
+        <div class="sheet-block">
+          <div class="sheet-block-title">HISTÓRICO / ORIGEM</div>
+          ${_gmTA(s.origin,'sheet-input sheet-textarea',4)}
+        </div>
+      </div>
+    </div>`;
+
+  // Reset para aba PERFIL
+  document.querySelectorAll('#gm-sheet-tabs .sheet-tab').forEach((b,i) => b.classList.toggle('active', i===0));
+
+  // Botão editar vitais
+  const editBtn = document.getElementById('gm-edit-vitals-btn');
+  if (editBtn) { editBtn.onclick = () => { closeModal('modal-gm-sheet'); editPlayerVitals(data.sid); }; }
+
   modal.classList.remove('hidden');
 });
 
-function sheetRow(label, value) {
-  if (!value && value !== 0) return '';
-  return `<tr><td style="padding:3px 6px;color:var(--text-muted);width:40%">${label}</td><td style="padding:3px 6px;color:var(--text-primary)">${value}</td></tr>`;
-}
 
 function editPlayerVitals(sid) {
   const p = players[sid];
@@ -1549,6 +1775,28 @@ function applyAvatarTransform() {
   if (img) img.style.transform = `translate(${avatarX}px, ${avatarY}px) scale(${avatarScale})`;
 }
 
+// ===================== AVATAR DO GM =====================
+function gmAvatarClick() {
+  if (!isGM) return;
+  document.getElementById('gm-avatar-upload').click();
+}
+
+function setGMAvatar(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    sessionStorage.setItem('gm_avatar', dataUrl);
+    // Atualiza avatar na nav
+    const el = document.getElementById('nav-avatar');
+    if (el) el.innerHTML = `<img src="${dataUrl}" alt="">`;
+    // Compartilha com todos via share_sheet (reusa o mecanismo existente)
+    socket.emit('share_sheet', { room_id: ROOM_ID, sheet: { avatar: dataUrl, name: playerName } });
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
 // ===================== DADO D6 FRACIONADO =====================
 function rollFracD6() {
   const face = Math.floor(Math.random() * 6) + 1;
@@ -1704,13 +1952,37 @@ function initTQDrag() {
   if (!header || header._tqDragBound) return;
   header._tqDragBound = true;
   header.addEventListener('mousedown', e => {
-    if (e.target.tagName === 'BUTTON') return; // don't drag when clicking buttons
+    if (e.target.tagName === 'BUTTON') return;
     const panel = document.getElementById('turn-queue');
-    const rect = panel.getBoundingClientRect();
-    _tqDrag = { sx: e.clientX, sy: e.clientY, t: panel.offsetTop, l: panel.offsetLeft };
+    const r = panel.getBoundingClientRect();
+    _tqDrag = { sx: e.clientX, sy: e.clientY, t: r.top, l: r.left };
     e.preventDefault();
   });
 }
+
+// Movimento de tokens por teclado (WASD / setas) quando no mapa
+document.addEventListener('keydown', (e) => {
+  if (!mapInited) return;
+  if (!selectedTokenIds.size) return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  const viewMap = document.getElementById('view-map');
+  if (!viewMap || !viewMap.classList.contains('active')) return;
+  let dx = 0, dy = 0;
+  const gs = mapState.grid_size;
+  if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') dx = -gs;
+  else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dx = gs;
+  else if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') dy = -gs;
+  else if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') dy = gs;
+  else return;
+  e.preventDefault();
+  for (const id of selectedTokenIds) {
+    if (tokens[id]) {
+      tokens[id].x += dx; tokens[id].y += dy;
+      socket.emit('token_move', { room_id: ROOM_ID, token_id: id, x: tokens[id].x, y: tokens[id].y });
+    }
+  }
+  drawMap();
+});
 
 document.addEventListener('mousemove', e => {
   if (_tqRes) {
@@ -1733,7 +2005,18 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSheetFromStorage();
   updateAttrPoints(); updatePerPoints();
   addInventoryItem('');
-  if (isGM) { loadMonsters(); loadBattleNotes(); loadCombatQueue(); }
+  if (isGM) {
+    loadMonsters(); loadBattleNotes(); loadCombatQueue();
+    // Restaura avatar do GM se já definiu antes
+    const savedAvatar = sessionStorage.getItem('gm_avatar');
+    if (savedAvatar) {
+      const el = document.getElementById('nav-avatar');
+      if (el) el.innerHTML = `<img src="${savedAvatar}" alt="">`;
+    }
+    // Torna o nav-avatar clicável para o GM
+    const navAv = document.getElementById('nav-avatar');
+    if (navAv) navAv.style.cursor = 'pointer';
+  }
 
   const messagesArea = document.getElementById('messages-area');
   if (messagesArea) {

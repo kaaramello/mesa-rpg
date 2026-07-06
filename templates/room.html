@@ -25,6 +25,9 @@
     <button class="nav-btn" data-view="map" onclick="switchView('map')" title="Mapa">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
     </button>
+    <button class="nav-btn" data-view="notes" onclick="switchView('notes')" title="Notas da Mesa (compartilhadas)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+    </button>
     <button class="nav-btn gm-only" data-view="battle" onclick="switchView('battle')" title="Monstros / Combate">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 2C7.03 2 3 6.03 3 11c0 3.1 1.5 5.84 3.84 7.57L7 20v2h10v-2l.16-1.43C19.5 16.84 21 14.1 21 11 21 6.03 16.97 2 12 2z"/>
@@ -136,8 +139,8 @@
         <span class="persona-label">Como:</span>
         <input type="text" id="persona-name" class="persona-input" placeholder="Nome do personagem..." maxlength="32">
       </div>
-      <div class="chat-input-row">
-        <input type="text" id="chat-input" placeholder="Digite uma mensagem ou /rollD20..." maxlength="700" onkeydown="chatKeydown(event)">
+      <div class="chat-input-row" ondragover="event.preventDefault()" ondrop="handleInventoryDrop(event)">
+        <input type="text" id="chat-input" placeholder="Digite uma mensagem, /rollD20 ou /w Nome sussurro..." maxlength="700" onkeydown="chatKeydown(event)" ondragover="event.preventDefault()" ondrop="handleInventoryDrop(event)">
         <button class="chat-send-btn" onclick="sendChat()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
         </button>
@@ -166,6 +169,16 @@
         <div id="monsters-grid" class="monsters-grid"></div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ===== VIEW: NOTAS COMPARTILHADAS DA MESA ===== -->
+  <div id="view-notes" class="view">
+    <div class="table-notes-wrap">
+      <div class="table-notes-header">📝 NOTAS DA MESA <span style="font-weight:400;color:var(--text-faint)">(visível e editável por todos)</span></div>
+      <textarea id="table-notes" class="table-notes-ta-full"
+        placeholder="Notas compartilhadas da sessão — mapa do mundo, combinados, diário de bordo..."
+        oninput="updateTableNotes(this.value)"></textarea>
     </div>
   </div>
 
@@ -227,11 +240,13 @@
   <button onclick="tokenMenuAction('hp')">❤️ Alterar HP</button>
   <button onclick="tokenMenuAction('resize')">📐 Tamanho</button>
   <button onclick="tokenMenuAction('avatar')">📷 Foto da Ficha</button>
+  <button onclick="tokenMenuAction('hidden')">🙈 Ocultar/Mostrar</button>
   <button onclick="tokenMenuAction('remove')">🗑️ Remover</button>
 </div>
 
 <div id="pin-menu" class="context-menu hidden">
   <button onclick="pinMenuAction('edit')">✏️ Renomear</button>
+  <button onclick="pinMenuAction('hidden')">🙈 Ocultar/Mostrar</button>
   <button onclick="pinMenuAction('remove')">🗑️ Remover</button>
 </div>
 
@@ -457,13 +472,13 @@
                 <span class="sheet-points-tracker">Usados: <strong id="sh-attr-used">0</strong>/<input id="sh-attr-max" class="sheet-max-input gm-only" type="number" value="16" min="1" max="999" oninput="updateAttrPoints();updateAttrHint()"></span>
               </div>
               <div class="sheet-attrs">
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">👊</span><div class="sheet-attr-info"><strong>FORÇA</strong></div><input type="number" id="sh-forca" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🏃</span><div class="sheet-attr-info"><strong>AGILIDADE</strong></div><input type="number" id="sh-agilidade" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🛡️</span><div class="sheet-attr-info"><strong>DEFESA</strong></div><input type="number" id="sh-defesa" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🧠</span><div class="sheet-attr-info"><strong>INTELIGÊNCIA</strong></div><input type="number" id="sh-inteligencia" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🧿</span><div class="sheet-attr-info"><strong>MENTAL</strong></div><input type="number" id="sh-mental" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">💬</span><div class="sheet-attr-info"><strong>LÁBIA</strong></div><input type="number" id="sh-labia" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🌑</span><div class="sheet-attr-info"><strong>FURTIVIDADE</strong></div><input type="number" id="sh-furtividade" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">👊</span><div class="sheet-attr-info"><strong>FORÇA</strong></div><input type="number" id="sh-forca" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('FORÇA','sh-forca')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🏃</span><div class="sheet-attr-info"><strong>AGILIDADE</strong></div><input type="number" id="sh-agilidade" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('AGILIDADE','sh-agilidade')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🛡️</span><div class="sheet-attr-info"><strong>DEFESA</strong></div><input type="number" id="sh-defesa" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('DEFESA','sh-defesa')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🧠</span><div class="sheet-attr-info"><strong>INTELIGÊNCIA</strong></div><input type="number" id="sh-inteligencia" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('INTELIGÊNCIA','sh-inteligencia')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🧿</span><div class="sheet-attr-info"><strong>MENTAL</strong></div><input type="number" id="sh-mental" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('MENTAL','sh-mental')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">💬</span><div class="sheet-attr-info"><strong>LÁBIA</strong></div><input type="number" id="sh-labia" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('LÁBIA','sh-labia')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🌑</span><div class="sheet-attr-info"><strong>FURTIVIDADE</strong></div><input type="number" id="sh-furtividade" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('FURTIVIDADE','sh-furtividade')">🎲</button></div>
               </div>
             </div>
             <div class="sheet-block">
@@ -473,12 +488,12 @@
                 <span class="sheet-points-tracker">Usados: <strong id="sh-per-used">0</strong>/<input id="sh-per-max" class="sheet-max-input gm-only" type="number" value="7" min="1" max="999" oninput="updatePerPoints();updatePerHint()"></span>
               </div>
               <div class="sheet-attrs">
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🔍</span><div class="sheet-attr-info"><strong>INVESTIGAÇÃO</strong></div><input type="number" id="sh-investigacao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🎒</span><div class="sheet-attr-info"><strong>SOBREVIVÊNCIA</strong></div><input type="number" id="sh-sobrevivencia" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🔮</span><div class="sheet-attr-info"><strong>OCULTISMO</strong></div><input type="number" id="sh-ocultismo" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">✝️</span><div class="sheet-attr-info"><strong>RELIGIÃO</strong></div><input type="number" id="sh-religiao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">👁️</span><div class="sheet-attr-info"><strong>INTUIÇÃO</strong></div><input type="number" id="sh-intuicao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🩺</span><div class="sheet-attr-info"><strong>MEDICINA</strong></div><input type="number" id="sh-medicina" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🔍</span><div class="sheet-attr-info"><strong>INVESTIGAÇÃO</strong></div><input type="number" id="sh-investigacao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('INVESTIGAÇÃO','sh-investigacao')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🎒</span><div class="sheet-attr-info"><strong>SOBREVIVÊNCIA</strong></div><input type="number" id="sh-sobrevivencia" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('SOBREVIVÊNCIA','sh-sobrevivencia')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🔮</span><div class="sheet-attr-info"><strong>OCULTISMO</strong></div><input type="number" id="sh-ocultismo" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('OCULTISMO','sh-ocultismo')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">✝️</span><div class="sheet-attr-info"><strong>RELIGIÃO</strong></div><input type="number" id="sh-religiao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('RELIGIÃO','sh-religiao')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">👁️</span><div class="sheet-attr-info"><strong>INTUIÇÃO</strong></div><input type="number" id="sh-intuicao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('INTUIÇÃO','sh-intuicao')">🎲</button></div>
+                <div class="sheet-attr-row"><span class="sheet-attr-icon">🩺</span><div class="sheet-attr-info"><strong>MEDICINA</strong></div><input type="number" id="sh-medicina" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d20 + valor ≥ 12)" onclick="rollAttr('MEDICINA','sh-medicina')">🎲</button></div>
               </div>
             </div>
           </div>
@@ -539,7 +554,21 @@
         <div class="stab-inner">
           <div class="sheet-block">
             <div class="sheet-block-title">ANOTAÇÕES LIVRES</div>
-            <textarea id="sh-anotacoes" class="sheet-input sheet-textarea sheet-anotacoes" placeholder="Pistas da sessão, observações, notas pessoais, rascunhos..."></textarea>
+            <div class="notes-toolbar">
+              <label class="notes-tool-btn" title="Inserir imagem do computador">🖼️<input type="file" id="sh-anotacoes-file" accept="image/*" style="display:none" onchange="noteInsertFile(this)"></label>
+              <button class="notes-tool-btn" onclick="notePromptURL()" title="Inserir imagem por URL">🔗</button>
+            </div>
+            <div id="sh-anotacoes" class="sheet-anotacoes notes-editor" contenteditable="true" data-placeholder="Pistas da sessão, observações, notas pessoais, rascunhos..."></div>
+            <div id="note-img-toolbar" class="note-img-toolbar hidden">
+              <span class="note-img-tb-label">Largura:</span>
+              <button class="note-img-tb-btn" onclick="noteImgSize(25)">25%</button>
+              <button class="note-img-tb-btn" onclick="noteImgSize(50)">50%</button>
+              <button class="note-img-tb-btn" onclick="noteImgSize(75)">75%</button>
+              <button class="note-img-tb-btn" onclick="noteImgSize(100)">100%</button>
+              <input type="number" id="note-img-w" class="note-img-tb-input" min="10" max="100" placeholder="%" title="% da largura">
+              <span class="note-img-tb-label">%</span>
+              <button class="note-img-tb-btn note-img-tb-del" onclick="noteImgDelete()" title="Remover imagem">🗑️</button>
+            </div>
           </div>
         </div>
       </div>

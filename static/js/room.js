@@ -154,6 +154,22 @@ socket.on('room_state', (data) => {
     for (const [id, pin] of Object.entries(data.pins)) pins[id] = pin;
     if (mapInited) drawMap();
   }
+  if (data.notes !== undefined) {
+    const ta = document.getElementById('table-notes');
+    if (ta) ta.value = data.notes || '';
+  }
+});
+
+let _notesDebounce = null;
+function updateTableNotes(value) {
+  clearTimeout(_notesDebounce);
+  _notesDebounce = setTimeout(() => {
+    socket.emit('notes_update', { room_id: ROOM_ID, notes: value });
+  }, 400);
+}
+socket.on('notes_updated', (data) => {
+  const ta = document.getElementById('table-notes');
+  if (ta && document.activeElement !== ta) ta.value = data.notes || '';
 });
 
 let _msgHandler = null;
@@ -254,6 +270,30 @@ function startEditMsg(msgId, row) {
 function appendMessage(msg) {
   const list = document.getElementById('messages-list');
   if (!list) return;
+  if (msg.deleted) {
+    const el = document.createElement('div');
+    el.className = 'msg-system msg-deleted-ph';
+    if (msg.id) el.dataset.msgId = msg.id;
+    el.textContent = `🗑️ Mensagem de ${msg.realAuthor || msg.author || '?'} apagada por ${msg.deletedBy || '?'}`;
+    list.appendChild(el);
+    scrollMessages();
+    return;
+  }
+  if (msg.type === 'whisper') {
+    const row = document.createElement('div');
+    row.className = 'msg-whisper';
+    if (msg.id) row.dataset.msgId = msg.id;
+    const safeText = (msg.text || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const iAmAuthor = msg.author === playerName;
+    const label = iAmAuthor
+      ? `🤫 Você sussurra para <strong>${msg.target}</strong>`
+      : `🤫 <strong>${msg.author}</strong> sussurra${isGM && !iAmAuthor && msg.target && msg.target.toLowerCase() !== playerName.toLowerCase() ? ` para <strong>${msg.target}</strong>` : ''}`;
+    row.innerHTML = `<div class="msg-whisper-label">${label}</div><div class="msg-whisper-text" data-raw-text="${(msg.text||'').replace(/"/g,'&quot;')}">${safeText}</div>`;
+    _addMsgActions(row, msg);
+    list.appendChild(row);
+    scrollMessages();
+    return;
+  }
   if (msg.type === 'system') {
     const el = document.createElement('div');
     el.className = 'msg-system';
@@ -412,6 +452,14 @@ function sendChat() {
     return;
   }
 
+  // Comando /w Nome mensagem — sussurro visível só pro destinatário e o GM
+  const whisperMatch = text.match(/^\/w(?:hisper)?\s+(\S+)\s+([\s\S]+)$/i);
+  if (whisperMatch) {
+    socket.emit('chat_message', { room_id: ROOM_ID, text: whisperMatch[2], chat_type: 'whisper', target: whisperMatch[1] });
+    input.value = '';
+    return;
+  }
+
   if (chatMode === 'persona') {
     const persona = (document.getElementById('persona-name')?.value || '').trim();
     if (!persona) { document.getElementById('persona-name')?.focus(); return; }
@@ -426,18 +474,20 @@ function sendChat() {
 
 socket.on('message_deleted', (data) => {
   const el = document.querySelector(`[data-msg-id="${data.msg_id}"]`);
-  if (el) el.remove();
+  if (!el) return;
+  el.className = 'msg-system msg-deleted-ph';
+  el.textContent = `🗑️ Mensagem apagada por ${data.deletedBy || '?'}`;
 });
 
 socket.on('message_edited', (data) => {
   const el = document.querySelector(`[data-msg-id="${data.msg_id}"]`);
   if (!el) return;
-  const body = el.querySelector('.msg-body');
+  const body = el.querySelector('.msg-body, .msg-whisper-text');
   if (!body) return;
   const safeText = (data.text || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const wasItalic = body.style.fontStyle === 'italic';
   body.dataset.rawText = data.text;
-  body.innerHTML = safeText + ' <span class="msg-edited">(editado)</span>';
+  body.innerHTML = safeText + ` <span class="msg-edited" title="Editado ${data.editCount || 1}x">(editado)</span>`;
   if (wasItalic) body.style.fontStyle = 'italic';
 });
 
@@ -471,6 +521,12 @@ function copyRoomLink() {
 
 // ===================== DICE =====================
 let _diceOverlayTimer = null;
+
+function rollAttr(label, inputId) {
+  const el = document.getElementById(inputId);
+  const value = parseInt(el?.value) || 0;
+  socket.emit('attr_roll', { room_id: ROOM_ID, label, value });
+}
 
 function rollDice(sides, count, mod) {
   const n = count || 1;
@@ -698,6 +754,7 @@ function drawToken(tok) {
   const sy = tok.y * mapZoom + mapOffset.y;
   const sr = size * mapZoom / 2;
   mapCtx.save();
+  if (tok.hidden) mapCtx.globalAlpha = 0.4;
   mapCtx.beginPath();
   mapCtx.arc(sx, sy, sr, 0, Math.PI * 2);
   mapCtx.fillStyle = tok.color || '#7c6af7';
@@ -767,6 +824,7 @@ function drawPin(pin) {
   const r = 14;
   const color = pin.color || '#FF9800';
   mapCtx.save();
+  if (pin.hidden) mapCtx.globalAlpha = 0.4;
   // Círculo da cabeça
   mapCtx.beginPath();
   mapCtx.arc(sx, sy - r - 2, r, 0, Math.PI * 2);
@@ -1051,6 +1109,10 @@ function tokenMenuAction(action) {
   } else if (action === 'resize') {
     openTokenResizePanel();
     return;
+  } else if (action === 'hidden') {
+    contextMenuToken.hidden = !contextMenuToken.hidden;
+    socket.emit('token_update', { room_id: ROOM_ID, token: { ...contextMenuToken } });
+    drawMap();
   } else if (action === 'avatar') {
     // Build a small picker from current players with avatars
     const opts = Object.entries(players)
@@ -1122,6 +1184,10 @@ function pinMenuAction(action) {
       socket.emit('pin_update', { room_id: ROOM_ID, pin: { ...contextMenuPin } });
       drawMap();
     }
+  } else if (action === 'hidden') {
+    contextMenuPin.hidden = !contextMenuPin.hidden;
+    socket.emit('pin_update', { room_id: ROOM_ID, pin: { ...contextMenuPin } });
+    drawMap();
   }
   hideContextMenu();
   contextMenuPin = null;
@@ -1594,7 +1660,7 @@ function gatherSheet() {
     equipamentos: g('sh-equipamentos'), personalidade: g('sh-personalidade'),
     'nao-pode': g('sh-nao-pode'), 'mais-ama': g('sh-mais-ama'),
     'mais-odeia': g('sh-mais-odeia'), 'mais-teme': g('sh-mais-teme'),
-    historia: g('sh-historia'), anotacoes: g('sh-anotacoes'),
+    historia: g('sh-historia'), anotacoes: (document.getElementById('sh-anotacoes')||{}).innerHTML || '',
     'attr-max': g('sh-attr-max') || '16', 'per-max': g('sh-per-max') || '7',
   };
   s.classes = {
@@ -1642,7 +1708,9 @@ function applySheet(s) {
   set('sh-equipamentos', s.equipamentos); set('sh-personalidade', s.personalidade);
   set('sh-nao-pode', s['nao-pode']); set('sh-mais-ama', s['mais-ama']);
   set('sh-mais-odeia', s['mais-odeia']); set('sh-mais-teme', s['mais-teme']);
-  set('sh-historia', s.historia); set('sh-anotacoes', s.anotacoes);
+  set('sh-historia', s.historia);
+  const notesEl = document.getElementById('sh-anotacoes');
+  if (notesEl && s.anotacoes !== undefined) notesEl.innerHTML = s.anotacoes;
   set('sh-attr-max', s['attr-max']); set('sh-per-max', s['per-max']);
   if (s.classes) {
     const cls = { sentitivo: 'sh-cls-sentitivo', possuido: 'sh-cls-possuido', feiticeiro: 'sh-cls-feiticeiro', santificado: 'sh-cls-santificado' };
@@ -1702,8 +1770,23 @@ function addInventoryItem(value = '') {
   const list = document.getElementById('sh-inventory-list');
   if (!list) return;
   const item = document.createElement('div'); item.className = 'inv-item';
+  item.draggable = true;
   item.innerHTML = `<input type="text" placeholder="Item..." value="${value}"><button class="inv-del" onclick="this.parentElement.remove()">×</button>`;
+  item.addEventListener('dragstart', (e) => {
+    const val = item.querySelector('input')?.value || '';
+    e.dataTransfer.setData('text/plain', val);
+  });
   list.appendChild(item);
+}
+
+function handleInventoryDrop(e) {
+  e.preventDefault();
+  const val = e.dataTransfer.getData('text/plain');
+  if (!val) return;
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  input.value = (input.value ? input.value + ' ' : '') + `usa: ${val}`;
+  input.focus();
 }
 
 function escHtml(s) {
@@ -1729,6 +1812,135 @@ function addHabilidade(data = {}) {
       <input type="text" class="hab-cost" placeholder="Ex: 10 Energia, 1 ação..." value="${escHtml(data.cost||'')}">
     </div>`;
   list.appendChild(item);
+}
+
+// ===================== NOTES EDITOR =====================
+function _noteInsertImg(src) {
+  const el = document.getElementById('sh-anotacoes');
+  if (!el) return;
+  el.focus();
+  document.execCommand('insertHTML', false,
+    `<img src="${src}" style="max-width:100%;border-radius:6px;margin:6px 0;display:block;cursor:pointer">`);
+}
+
+function _noteResizeAndInsert(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 800;
+      const scale = img.width > maxW ? maxW / img.width : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      _noteInsertImg(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function noteInsertFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  _noteResizeAndInsert(file);
+  input.value = '';
+}
+
+function notePromptURL() {
+  const url = prompt('Cole a URL da imagem:');
+  if (url && url.trim()) _noteInsertImg(url.trim());
+}
+
+let _selectedNoteImg = null;
+
+function _showNoteImgToolbar(img) {
+  _selectedNoteImg = img;
+  img.classList.add('note-img-selected');
+  const tb = document.getElementById('note-img-toolbar');
+  const input = document.getElementById('note-img-w');
+  if (tb) tb.classList.remove('hidden');
+  if (input) {
+    const w = img.style.width ? parseInt(img.style.width) : 100;
+    input.value = isNaN(w) ? 100 : w;
+  }
+}
+
+function _hideNoteImgToolbar() {
+  if (_selectedNoteImg) {
+    _selectedNoteImg.classList.remove('note-img-selected');
+    _selectedNoteImg = null;
+  }
+  document.getElementById('note-img-toolbar')?.classList.add('hidden');
+}
+
+function noteImgSize(pct) {
+  if (!_selectedNoteImg) return;
+  _selectedNoteImg.style.width = pct + '%';
+  _selectedNoteImg.style.maxWidth = '100%';
+  const input = document.getElementById('note-img-w');
+  if (input) input.value = pct;
+}
+
+function noteImgDelete() {
+  if (!_selectedNoteImg) return;
+  _selectedNoteImg.remove();
+  _hideNoteImgToolbar();
+}
+
+function initNoteEditor() {
+  const el = document.getElementById('sh-anotacoes');
+  if (!el) return;
+
+  el.addEventListener('click', (e) => {
+    if (e.target.tagName === 'IMG') {
+      e.preventDefault();
+      _showNoteImgToolbar(e.target);
+    } else {
+      _hideNoteImgToolbar();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (_selectedNoteImg &&
+        !e.target.closest('#note-img-toolbar') &&
+        !e.target.closest('#sh-anotacoes')) {
+      _hideNoteImgToolbar();
+    }
+  });
+
+  const wInput = document.getElementById('note-img-w');
+  if (wInput) {
+    wInput.addEventListener('input', () => {
+      const v = parseInt(wInput.value);
+      if (_selectedNoteImg && v >= 10 && v <= 100) {
+        _selectedNoteImg.style.width = v + '%';
+        _selectedNoteImg.style.maxWidth = '100%';
+      }
+    });
+  }
+
+  el.addEventListener('paste', (e) => {
+    const items = e.clipboardData?.items || [];
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        _noteResizeAndInsert(item.getAsFile());
+        return;
+      }
+    }
+    const text = (e.clipboardData?.getData('text') || '').trim();
+    if (/^https?:\/\/.+\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?.*)?$/i.test(text)) {
+      e.preventDefault();
+      _noteInsertImg(text);
+      return;
+    }
+    if (text) {
+      e.preventDefault();
+      document.execCommand('insertText', false, text);
+    }
+  });
 }
 
 function loadSheetAvatar(event) {
@@ -2003,6 +2215,7 @@ document.addEventListener('mouseup', () => { _tqRes = null; _tqDrag = null; });
 // ===================== LOAD ON START =====================
 document.addEventListener('DOMContentLoaded', () => {
   loadSheetFromStorage();
+  initNoteEditor();
   updateAttrPoints(); updatePerPoints();
   addInventoryItem('');
   if (isGM) {

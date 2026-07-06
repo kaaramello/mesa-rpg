@@ -592,6 +592,7 @@ let mapState = { background: null, grid_size: 50, show_grid: true, grid_color: '
 let mapOffset = { x: 0, y: 0 }, mapZoom = 1;
 let mapBgImage = null;
 let isPanning = false, panStart = { x: 0, y: 0 };
+let _touchPinchDist = 0, _touchPinchMidX = 0, _touchPinchMidY = 0;
 let currentTool = 'select';
 let tokens = {};
 let pins = {};
@@ -618,6 +619,9 @@ function initMap() {
   mapCanvas.addEventListener('mouseup', onMapMouseUp);
   mapCanvas.addEventListener('wheel', onMapWheel, { passive: false });
   mapCanvas.addEventListener('contextmenu', onMapContextMenu);
+  mapCanvas.addEventListener('touchstart', onMapTouchStart, { passive: false });
+  mapCanvas.addEventListener('touchmove', onMapTouchMove, { passive: false });
+  mapCanvas.addEventListener('touchend', onMapTouchEnd, { passive: false });
   document.addEventListener('click', hideContextMenu);
   document.getElementById('pin-label-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); confirmAddPin(); }
@@ -1031,6 +1035,99 @@ function hideContextMenu() {
   if (menu) menu.classList.add('hidden');
   const pmenu = document.getElementById('pin-menu');
   if (pmenu) pmenu.classList.add('hidden');
+}
+
+function _touchDist(t1, t2) {
+  const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function onMapTouchStart(e) {
+  e.preventDefault();
+  hideContextMenu();
+  if (e.touches.length === 2) {
+    const t1 = e.touches[0], t2 = e.touches[1];
+    _touchPinchDist = _touchDist(t1, t2);
+    _touchPinchMidX = (t1.clientX + t2.clientX) / 2;
+    _touchPinchMidY = (t1.clientY + t2.clientY) / 2;
+    isPanning = false; draggingToken = null;
+    return;
+  }
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    const rect = mapCanvas.getBoundingClientRect();
+    const mp = screenToMap(t.clientX - rect.left, t.clientY - rect.top);
+    const tok = getTokenAt(mp.x, mp.y);
+    if (tok) {
+      if (!selectedTokenIds.has(tok.id)) { selectedTokenIds.clear(); selectedTokenIds.add(tok.id); }
+      draggingToken = tok; dragOffX = mp.x - tok.x; dragOffY = mp.y - tok.y;
+      drawMap();
+    } else {
+      isPanning = true; panStart = { x: t.clientX - mapOffset.x, y: t.clientY - mapOffset.y };
+    }
+  }
+}
+
+function onMapTouchMove(e) {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    const t1 = e.touches[0], t2 = e.touches[1];
+    const newDist = _touchDist(t1, t2);
+    const midX = (t1.clientX + t2.clientX) / 2;
+    const midY = (t1.clientY + t2.clientY) / 2;
+    const rect = mapCanvas.getBoundingClientRect();
+    const mx = midX - rect.left, my = midY - rect.top;
+    if (_touchPinchDist > 0) {
+      const scale = newDist / _touchPinchDist;
+      const newZoom = Math.min(4, Math.max(0.1, mapZoom * scale));
+      mapOffset.x = mx - (mx - mapOffset.x) * (newZoom / mapZoom);
+      mapOffset.y = my - (my - mapOffset.y) * (newZoom / mapZoom);
+      mapZoom = newZoom;
+      const zl = document.getElementById('zoom-info');
+      if (zl) zl.textContent = Math.round(mapZoom * 100) + '%';
+    }
+    // pan with mid-point delta
+    mapOffset.x += midX - _touchPinchMidX;
+    mapOffset.y += midY - _touchPinchMidY;
+    _touchPinchDist = newDist;
+    _touchPinchMidX = midX; _touchPinchMidY = midY;
+    drawMap(); return;
+  }
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    if (isPanning) {
+      mapOffset.x = t.clientX - panStart.x; mapOffset.y = t.clientY - panStart.y;
+      drawMap(); return;
+    }
+    if (draggingToken) {
+      const rect = mapCanvas.getBoundingClientRect();
+      const mp = screenToMap(t.clientX - rect.left, t.clientY - rect.top);
+      const snapped = snapToGridPos(mp.x - dragOffX, mp.y - dragOffY);
+      const dx = snapped.x - draggingToken.x, dy = snapped.y - draggingToken.y;
+      if (dx !== 0 || dy !== 0) {
+        for (const id of selectedTokenIds) {
+          if (tokens[id]) { tokens[id].x += dx; tokens[id].y += dy; }
+        }
+        draggingToken = tokens[draggingToken.id];
+      }
+      drawMap();
+    }
+  }
+}
+
+function onMapTouchEnd(e) {
+  e.preventDefault();
+  if (e.touches.length < 2) _touchPinchDist = 0;
+  if (e.touches.length === 0) {
+    if (draggingToken) {
+      for (const id of selectedTokenIds) {
+        if (tokens[id]) socket.emit('token_move', { room_id: ROOM_ID, token_id: id, x: tokens[id].x, y: tokens[id].y });
+      }
+      draggingToken = null;
+    }
+    isPanning = false;
+    mapCanvas.style.cursor = currentTool === 'move' ? 'grab' : 'crosshair';
+  }
 }
 
 function openTokenResizePanel() {

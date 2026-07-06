@@ -975,6 +975,31 @@ body.is-gm .sheet-btn { display: none !important; }
   .stab-status-cols { grid-template-columns: 1fr; }
   .sheet-recursos { flex-wrap: wrap; }
   .sheet-avatar-row { flex-direction: column; align-items: center; }
+
+  /* Mapa: toolbar rolável horizontalmente */
+  #map-toolbar {
+    overflow-x: auto; flex-shrink: 1; min-width: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #map-toolbar::-webkit-scrollbar { display: none; }
+  .tool-btn { min-width: 40px; height: 40px; font-size: 16px; }
+  .tool-sep { flex-shrink: 0; }
+  .zoom-label { flex-shrink: 0; font-size: 11px; }
+
+  /* Evita que o canvas capture eventos de scroll da página */
+  #map-canvas { touch-action: none; }
+
+  /* Fila de combate não ultrapassar a tela */
+  #turn-queue { max-width: calc(100vw - 16px); overflow-x: auto; }
+
+  /* Topbar: encolhe o centro para toolbar do mapa caber */
+  #topbar { gap: 6px; }
+  .topbar-left { flex-shrink: 0; min-width: 0; }
+  .topbar-right { flex-shrink: 0; }
+
+  /* Painel de tokens/pins: botões maiores */
+  .token-menu-item, .pin-menu-item { padding: 10px 16px; font-size: 14px; }
 }
 
 /* ===== VIEW: BATALHA / MONSTROS ===== */

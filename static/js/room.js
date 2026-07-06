@@ -2339,6 +2339,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // Ajusta altura quando teclado virtual abre (fallback para browsers sem dvh)
+  if (window.visualViewport && window.innerWidth <= 768) {
+    const appBody = document.getElementById('app-body');
+    window.visualViewport.addEventListener('resize', () => {
+      if (appBody) appBody.style.height = (window.visualViewport.height - 56) + 'px';
+    });
+  }
 });
 
 // ===================== MONSTROS / COMBATE =====================

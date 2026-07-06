@@ -933,17 +933,20 @@ body.is-gm .sheet-btn { display: none !important; }
   .nav-bottom { flex-direction: row; gap: 0; }
   .nav-btn { width: 52px; height: 52px; border-radius: 8px; }
 
-  /* App body ocupa tudo menos a nav inferior */
+  /* App body: usa dvh para encolher quando teclado abre */
   #app-body {
-    height: calc(100vh - 56px);
+    height: calc(100dvh - 56px);
     width: 100%;
     order: 1;
+    overflow: hidden;
   }
 
   /* Topbar mais compacto */
-  #topbar { padding: 0 10px; }
+  #topbar { padding: 0 10px; gap: 6px; }
   .topbar-btn.copy-btn { display: none; }
   .mobile-players-btn { display: flex; }
+  .topbar-left { flex-shrink: 0; }
+  .topbar-right { flex-shrink: 0; }
 
   /* Painel direito vira gaveta */
   #right-panel {
@@ -955,14 +958,26 @@ body.is-gm .sheet-btn { display: none !important; }
   #right-panel.open { right: 0; }
   .rp-close-btn { display: flex; align-items: center; justify-content: center; }
 
-  /* Chat toolbar — dados roláveis horizontalmente */
-  .chat-toolbar { flex-wrap: nowrap; overflow-x: auto; gap: 4px; padding-bottom: 2px; }
-  .chat-dice-btns { overflow-x: auto; flex-shrink: 0; }
+  /* Chat toolbar: rola horizontalmente, sem quebra de linha */
+  .chat-toolbar {
+    flex-wrap: nowrap; overflow-x: auto; gap: 6px;
+    padding-bottom: 4px; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; align-items: center;
+  }
+  .chat-toolbar::-webkit-scrollbar { display: none; }
   .chat-mode-btns { flex-shrink: 0; }
 
-  /* Input de chat maior para toque */
-  #chat-input { font-size: 16px; } /* previne zoom automático no iOS */
-  .chat-send-btn { width: 44px; height: 44px; border-radius: 10px; }
+  /* Botões de dados maiores para toque fácil */
+  .chat-tool { width: 40px; height: 40px; flex-shrink: 0; }
+  .chat-mode-btn { width: 40px; height: 40px; }
+  .chat-dice-btns { display: flex; gap: 5px; flex-shrink: 0; border-left: 1px solid var(--border); padding-left: 8px; }
+  .cdice-btn { height: 38px; padding: 0 12px; font-size: 13px; font-weight: 900; flex-shrink: 0; }
+  .cdice-pct-input { height: 38px; font-size: 13px; }
+
+  /* Input de chat: fonte 16px previne zoom automático no iOS */
+  #chat-input { font-size: 16px; min-height: 44px; }
+  .chat-send-btn { width: 48px; height: 48px; border-radius: 10px; flex-shrink: 0; }
+  #chat-footer { padding: 8px 10px 10px; }
 
   /* Mensagens com mais padding lateral */
   #messages-area { padding: 10px 8px; }
@@ -979,27 +994,33 @@ body.is-gm .sheet-btn { display: none !important; }
   /* Mapa: toolbar rolável horizontalmente */
   #map-toolbar {
     overflow-x: auto; flex-shrink: 1; min-width: 0;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
   }
   #map-toolbar::-webkit-scrollbar { display: none; }
-  .tool-btn { min-width: 40px; height: 40px; font-size: 16px; }
+  .tool-btn { min-width: 40px; height: 40px; font-size: 16px; flex-shrink: 0; }
   .tool-sep { flex-shrink: 0; }
   .zoom-label { flex-shrink: 0; font-size: 11px; }
 
-  /* Evita que o canvas capture eventos de scroll da página */
+  /* Canvas: bloqueia scroll nativo para touch do mapa funcionar */
   #map-canvas { touch-action: none; }
 
-  /* Fila de combate não ultrapassar a tela */
+  /* Painel de grade: vira bottom sheet no mobile */
+  .floating-panel {
+    position: fixed !important;
+    top: auto !important; bottom: 66px !important;
+    left: 8px !important; right: 8px !important; width: auto !important;
+    max-height: 55vh; overflow-y: auto;
+    border-radius: 14px; z-index: 50;
+  }
+  .fp-title { font-size: 14px; }
+  .fp-btn { height: 40px; font-size: 13px; }
+  .fp-row input[type=range] { height: 32px; }
+
+  /* Fila de combate */
   #turn-queue { max-width: calc(100vw - 16px); overflow-x: auto; }
 
-  /* Topbar: encolhe o centro para toolbar do mapa caber */
-  #topbar { gap: 6px; }
-  .topbar-left { flex-shrink: 0; min-width: 0; }
-  .topbar-right { flex-shrink: 0; }
-
-  /* Painel de tokens/pins: botões maiores */
-  .token-menu-item, .pin-menu-item { padding: 10px 16px; font-size: 14px; }
+  /* Context menu maior para toque */
+  .context-menu button { padding: 12px 18px; font-size: 14px; }
 }
 
 /* ===== VIEW: BATALHA / MONSTROS ===== */

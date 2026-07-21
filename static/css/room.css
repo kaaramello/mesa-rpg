@@ -935,6 +935,7 @@ body.is-gm .sheet-btn { display: none !important; }
 
   /* App body: usa dvh para encolher quando teclado abre */
   #app-body {
+    flex: none;
     height: calc(100dvh - 56px);
     width: 100%;
     order: 1;
@@ -984,12 +985,39 @@ body.is-gm .sheet-btn { display: none !important; }
 
   /* Modal de ficha: tela cheia no mobile */
   .sheet-fullbox {
-    width: 100vw; height: 100vh;
+    width: 100vw; height: 100dvh;
     border-radius: 0; max-width: 100%; max-height: 100%;
   }
+
+  /* Header compacto: empilha título e classes em 2 linhas curtas */
+  .sheet-header-bar {
+    flex-direction: column; align-items: flex-start;
+    padding: 6px 12px; gap: 4px;
+  }
+  .sheet-ornament { display: none; }
+  .sheet-main-title { font-size: 12px; letter-spacing: 1.5px; }
+  .sheet-title-area { gap: 6px; }
+  .sheet-classe-box {
+    margin-left: 0; gap: 10px; flex-wrap: nowrap;
+    overflow-x: auto; width: 100%; padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .sheet-classe-box::-webkit-scrollbar { display: none; }
+  .sheet-section-label { display: none; }
+  .sheet-check { font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+
+  /* Abas menores para caber mais na tela */
+  .sheet-tab { padding: 8px 9px; font-size: 10px; letter-spacing: 0.2px; }
+
+  /* Menos padding no conteúdo das abas */
+  .stab-inner { padding: 12px 10px; }
+
   .stab-status-cols { grid-template-columns: 1fr; }
   .sheet-recursos { flex-wrap: wrap; }
   .sheet-avatar-row { flex-direction: column; align-items: center; }
+  .sheet-dados-fields { width: 100%; flex: none; }
+  .sheet-field-trio { flex-wrap: wrap; }
+  .sheet-field-item { min-width: 120px; }
 
   /* Mapa: toolbar rolável horizontalmente */
   #map-toolbar {
@@ -1017,7 +1045,10 @@ body.is-gm .sheet-btn { display: none !important; }
   .fp-row input[type=range] { height: 32px; }
 
   /* Fila de combate */
-  #turn-queue { max-width: calc(100vw - 16px); overflow-x: auto; }
+  #turn-queue {
+    max-width: calc(100vw - 16px); overflow-x: auto;
+    max-height: calc(100dvh - 56px - 70px);
+  }
 
   /* Context menu maior para toque */
   .context-menu button { padding: 12px 18px; font-size: 14px; }
@@ -1096,6 +1127,17 @@ body.is-gm .sheet-btn { display: none !important; }
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px; align-items: start;
+}
+
+@media (max-width: 768px) {
+  .battle-layout { flex-direction: column; overflow-y: auto; }
+  .battle-notes-panel {
+    width: 100%; max-height: 180px; flex-shrink: 0;
+    border-right: none; border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+  }
+  .monsters-wrap { overflow-y: auto; flex: 1; min-height: 0; }
+  .monsters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ===== CARD DE MONSTRO ===== */

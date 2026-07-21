@@ -43,7 +43,8 @@ function loadRooms() {
         tokens: data.tokens || {},
         pins: data.pins || {},
         messages: data.messages || [],
-        map: data.map || { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 }
+        map: data.map || { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
+        notes: data.notes || ''
       };
     }
     console.log(`Salas carregadas: ${Object.keys(saved).join(', ') || '(nenhuma)'}`);
@@ -64,7 +65,8 @@ function saveRooms() {
           messages: room.messages.slice(-500),
           tokens: room.tokens,
           pins: room.pins,
-          map: room.map
+          map: room.map,
+          notes: room.notes
         };
       }
       fs.writeFileSync(SAVE_FILE, JSON.stringify(toSave, null, 2), 'utf8');
@@ -85,7 +87,8 @@ function getRoom(roomId) {
       tokens: {},
       pins: {},
       messages: [],
-      map: { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 }
+      map: { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
+      notes: ''
     };
   }
   return rooms[roomId];
@@ -93,6 +96,23 @@ function getRoom(roomId) {
 
 function msgId() {
   return crypto.randomBytes(4).toString('hex');
+}
+
+// Sussurros só devem ser entregues/reidratados para autor, alvo(s) e GM
+function isWhisperVisibleTo(msg, player) {
+  if (msg.type !== 'whisper') return true;
+  if (!player) return false;
+  if (player.is_gm) return true;
+  if (player.name === msg.author) return true;
+  return !!(msg.target && player.name.toLowerCase() === msg.target.toLowerCase());
+}
+
+// Emite um evento sobre uma mensagem (edição/exclusão) só para quem podia ver o sussurro original
+function emitToMsgAudience(io, room, roomId, msg, event, payload) {
+  if (msg.type !== 'whisper') { io.to(roomId).emit(event, payload); return; }
+  for (const [sid, p] of Object.entries(room.players)) {
+    if (isWhisperVisibleTo(msg, p)) io.to(sid).emit(event, payload);
+  }
 }
 
 function broadcastPlayers(roomId, room) {
@@ -127,12 +147,23 @@ io.on('connection', (socket) => {
       name: player_name, is_gm: !!is_gm,
       sid: socket.id, token: playerToken, vitals: {}
     };
+    const me = room.players[socket.id];
+
+    const visibleTokens = {};
+    for (const [id, t] of Object.entries(room.tokens)) {
+      if (!t.hidden || me.is_gm) visibleTokens[id] = t;
+    }
+    const visiblePins = {};
+    for (const [id, p] of Object.entries(room.pins)) {
+      if (!p.hidden || me.is_gm) visiblePins[id] = p;
+    }
 
     socket.emit('room_state', {
-      tokens: room.tokens,
-      pins: room.pins,
-      messages: room.messages.slice(-200),
-      map: room.map
+      tokens: visibleTokens,
+      pins: visiblePins,
+      messages: room.messages.slice(-200).filter(m => isWhisperVisibleTo(m, me)),
+      map: room.map,
+      notes: room.notes
     });
 
     broadcastPlayers(room_id, room);
@@ -170,11 +201,13 @@ io.on('connection', (socket) => {
       msg = { type: 'persona', author: persona, realAuthor: player.name, text: data.text, id: msgId() };
     } else if (data.chat_type === 'highlight') {
       msg = { type: 'highlight', author: player.name, origAuthor: String(data.origAuthor || '').slice(0, 40), text: data.text, id: msgId() };
+    } else if (data.chat_type === 'whisper' && data.target) {
+      msg = { type: 'whisper', author: player.name, target: String(data.target).slice(0, 40), text: data.text, id: msgId() };
     } else {
       msg = { type: 'chat', author: player.name, text: data.text, id: msgId() };
     }
     room.messages.push(msg);
-    io.to(data.room_id).emit('new_message', msg);
+    emitToMsgAudience(io, room, data.room_id, msg, 'new_message', msg);
     saveRooms();
   });
 
@@ -215,7 +248,12 @@ io.on('connection', (socket) => {
     if (!room || !room.tokens[data.token_id]) return;
     room.tokens[data.token_id].x = data.x;
     room.tokens[data.token_id].y = data.y;
-    io.to(data.room_id).emit('token_moved', { token_id: data.token_id, x: data.x, y: data.y });
+    const payload = { token_id: data.token_id, x: data.x, y: data.y };
+    if (room.tokens[data.token_id].hidden) {
+      for (const [sid, p] of Object.entries(room.players)) if (p.is_gm) io.to(sid).emit('token_moved', payload);
+    } else {
+      io.to(data.room_id).emit('token_moved', payload);
+    }
     saveRooms();
   });
 
@@ -230,8 +268,18 @@ io.on('connection', (socket) => {
   socket.on('token_update', (data) => {
     const room = rooms[data.room_id];
     if (!room || !room.tokens[data.token.id]) return;
+    const wasHidden = !!room.tokens[data.token.id].hidden;
     Object.assign(room.tokens[data.token.id], data.token);
-    io.to(data.room_id).emit('token_updated', data.token);
+    const full = room.tokens[data.token.id];
+    if (full.hidden) {
+      // Só o GM continua vendo; quem via antes precisa "esquecer" o token
+      for (const [sid, p] of Object.entries(room.players)) {
+        if (p.is_gm) io.to(sid).emit('token_updated', full);
+        else if (!wasHidden) io.to(sid).emit('token_removed', { token_id: full.id });
+      }
+    } else {
+      io.to(data.room_id).emit('token_updated', full);
+    }
     saveRooms();
   });
 
@@ -268,8 +316,18 @@ io.on('connection', (socket) => {
     if (!room) return;
     const player = room.players[socket.id];
     if (!player?.is_gm) return;
-    if (room.pins[data.pin.id]) Object.assign(room.pins[data.pin.id], data.pin);
-    io.to(data.room_id).emit('pin_updated', data.pin);
+    if (!room.pins[data.pin.id]) return;
+    const wasHidden = !!room.pins[data.pin.id].hidden;
+    Object.assign(room.pins[data.pin.id], data.pin);
+    const full = room.pins[data.pin.id];
+    if (full.hidden) {
+      for (const [sid, p] of Object.entries(room.players)) {
+        if (p.is_gm) io.to(sid).emit('pin_updated', full);
+        else if (!wasHidden) io.to(sid).emit('pin_removed', { pin_id: full.id });
+      }
+    } else {
+      io.to(data.room_id).emit('pin_updated', full);
+    }
     saveRooms();
   });
 
@@ -331,13 +389,14 @@ io.on('connection', (socket) => {
     if (!room) return;
     const player = room.players[socket.id];
     if (!player) return;
-    const idx = room.messages.findIndex(m => m.id === data.msg_id);
-    if (idx === -1) return;
-    const msg = room.messages[idx];
+    const msg = room.messages.find(m => m.id === data.msg_id);
+    if (!msg) return;
     const isAuthor = msg.author === player.name || msg.realAuthor === player.name;
     if (!isAuthor && !player.is_gm) return;
-    room.messages.splice(idx, 1);
-    io.to(data.room_id).emit('message_deleted', { msg_id: data.msg_id });
+    msg.deleted = true;
+    msg.deletedBy = player.name;
+    msg.deletedAt = Date.now();
+    emitToMsgAudience(io, room, data.room_id, msg, 'message_deleted', { msg_id: data.msg_id, deletedBy: msg.deletedBy });
     saveRooms();
   });
 
@@ -348,12 +407,41 @@ io.on('connection', (socket) => {
     if (!player) return;
     const msg = room.messages.find(m => m.id === data.msg_id);
     if (!msg) return;
-    if (msg.type === 'roll' || msg.type === 'system' || msg.type === 'file') return;
+    if (msg.type === 'roll' || msg.type === 'system' || msg.type === 'file' || msg.deleted) return;
     const isAuthor = msg.author === player.name || msg.realAuthor === player.name;
     if (!isAuthor) return;
+    if (!msg.edits) msg.edits = [];
+    msg.edits.push({ text: msg.text, editedAt: Date.now() });
     msg.text = String(data.text || '').slice(0, 700);
     msg.edited = true;
-    io.to(data.room_id).emit('message_edited', { msg_id: data.msg_id, text: msg.text });
+    emitToMsgAudience(io, room, data.room_id, msg, 'message_edited', { msg_id: data.msg_id, text: msg.text, editCount: msg.edits.length });
+    saveRooms();
+  });
+
+  socket.on('attr_roll', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const player = room.players[socket.id] || { name: 'Desconhecido' };
+    const label = String(data.label || 'Atributo').slice(0, 40);
+    const value = parseInt(data.value) || 0;
+    const roll = Math.floor(Math.random() * 20) + 1;
+    const total = roll + value;
+    const success = total >= 12;
+    const msg = {
+      type: 'roll', author: player.name,
+      text: `testou ${label} (+${value}): 1d20 (${roll}) + ${value} = **${total}** → ${success ? 'SUCESSO ✅' : 'FALHA ❌'}`,
+      rolls: [roll], total, id: msgId()
+    };
+    room.messages.push(msg);
+    io.to(data.room_id).emit('new_message', msg);
+    saveRooms();
+  });
+
+  socket.on('notes_update', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    room.notes = String(data.notes || '').slice(0, 20000);
+    io.to(data.room_id).emit('notes_updated', { notes: room.notes });
     saveRooms();
   });
 });

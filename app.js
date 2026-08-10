@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 const server = http.createServer(app);
@@ -31,12 +32,47 @@ app.get('/room/:roomId', (req, res) => {
 const DATA_DIR = path.join(__dirname, 'data');
 const SAVE_FILE = path.join(DATA_DIR, 'rooms.json');
 
-function loadRooms() {
+let _mongo = null; // coleção do MongoDB, null = usa arquivo local
+
+async function connectMongo() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) return;
+  try {
+    const client = new MongoClient(uri);
+    await client.connect();
+    _mongo = client.db('mesa_rpg').collection('rooms');
+    console.log('MongoDB conectado.');
+  } catch (e) {
+    console.error('Erro ao conectar MongoDB:', e.message);
+  }
+}
+
+async function loadRooms() {
+  if (_mongo) {
+    try {
+      const docs = await _mongo.find({}).toArray();
+      for (const doc of docs) {
+        rooms[doc._id] = {
+          players: {},
+          tokens: doc.tokens || {},
+          pins: doc.pins || {},
+          messages: doc.messages || [],
+          map: doc.map || { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
+          notes: doc.notes || '',
+          library: doc.library || {}
+        };
+      }
+      console.log(`Salas carregadas do MongoDB: ${docs.map(d => d._id).join(', ') || '(nenhuma)'}`);
+      return;
+    } catch (e) {
+      console.error('Erro ao carregar do MongoDB:', e.message);
+    }
+  }
+  // fallback: arquivo local (Electron)
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(SAVE_FILE)) return;
-    const raw = fs.readFileSync(SAVE_FILE, 'utf8');
-    const saved = JSON.parse(raw);
+    const saved = JSON.parse(fs.readFileSync(SAVE_FILE, 'utf8'));
     for (const [id, data] of Object.entries(saved)) {
       rooms[id] = {
         players: {},
@@ -48,7 +84,7 @@ function loadRooms() {
         library: data.library || {}
       };
     }
-    console.log(`Salas carregadas: ${Object.keys(saved).join(', ') || '(nenhuma)'}`);
+    console.log(`Salas carregadas do arquivo: ${Object.keys(saved).join(', ') || '(nenhuma)'}`);
   } catch (e) {
     console.error('Erro ao carregar salas:', e.message);
   }
@@ -57,7 +93,29 @@ function loadRooms() {
 let _saveTimer = null;
 function saveRooms() {
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => {
+  _saveTimer = setTimeout(async () => {
+    if (_mongo) {
+      for (const [id, room] of Object.entries(rooms)) {
+        try {
+          await _mongo.updateOne(
+            { _id: id },
+            { $set: {
+              messages: room.messages.slice(-500),
+              tokens: room.tokens,
+              pins: room.pins,
+              map: room.map,
+              notes: room.notes,
+              library: room.library
+            }},
+            { upsert: true }
+          );
+        } catch (e) {
+          console.error('Erro ao salvar no MongoDB:', e.message);
+        }
+      }
+      return;
+    }
+    // fallback: arquivo local
     try {
       if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
       const toSave = {};
@@ -73,14 +131,13 @@ function saveRooms() {
       }
       fs.writeFileSync(SAVE_FILE, JSON.stringify(toSave, null, 2), 'utf8');
     } catch (e) {
-      console.error('Erro ao salvar salas:', e.message);
+      console.error('Erro ao salvar no arquivo:', e.message);
     }
   }, 2000);
 }
 
 // ===================== ESTADO =====================
 const rooms = {};
-loadRooms();
 
 function getRoom(roomId) {
   if (!rooms[roomId]) {
@@ -556,7 +613,7 @@ function createServer(port) {
 // Roda direto se não for importado pelo Electron
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
-  createServer(PORT);
+  connectMongo().then(() => loadRooms()).then(() => createServer(PORT));
 }
 
-module.exports = { createServer };
+module.exports = { createServer, connectMongo, loadRooms };

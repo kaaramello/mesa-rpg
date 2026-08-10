@@ -5,3 +5,8 @@ services:
     buildCommand: npm install --omit=dev
     startCommand: npm start
     plan: free
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: NODE_ENV
+        value: production

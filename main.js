@@ -15,8 +15,10 @@ function getLocalIP() {
 }
 
 async function startServer() {
-  const { createServer } = require('./app');
+  const { createServer, connectMongo, loadRooms } = require('./app');
   const port = process.env.PORT || 5000;
+  await connectMongo();
+  await loadRooms();
   await createServer(port);
   return port;
 }

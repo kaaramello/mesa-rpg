@@ -610,10 +610,20 @@ function createServer(port) {
   });
 }
 
+// Auto-ping: evita hibernação no Render (free tier) pingando a cada 14 min
+function startKeepAlive(url) {
+  setInterval(() => {
+    fetch(url).catch(() => {});
+  }, 14 * 60 * 1000);
+  console.log(`Keep-alive ativo → ${url}`);
+}
+
 // Roda direto se não for importado pelo Electron
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
-  connectMongo().then(() => loadRooms()).then(() => createServer(PORT));
+  connectMongo().then(() => loadRooms()).then(() => createServer(PORT)).then(() => {
+    if (process.env.RENDER_EXTERNAL_URL) startKeepAlive(process.env.RENDER_EXTERNAL_URL);
+  });
 }
 
 module.exports = { createServer, connectMongo, loadRooms };

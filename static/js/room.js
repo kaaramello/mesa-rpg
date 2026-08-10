@@ -73,16 +73,24 @@ function renderPlayers() {
     const vidaMax = v.vida_max || 0;
     const sanMax  = v.sanidade_max || 0;
     const enMax   = v.energia_max || 0;
+    const canEditVitals = sid === socket.id || (isGM && !p.is_gm);
     const vitalsHtml = p.is_gm ? '' : `
-      <div class="pc-vitals">
+      <div class="pc-vitals${canEditVitals ? ' pc-vitals-clickable' : ''}"${canEditVitals ? ` onclick="editPlayerVitals('${sid}')" title="Clique para editar os vitais"` : ''}>
         <div class="pc-bar-row"><span class="pc-bar-icon">❤️</span><div class="pc-bar-wrap${vidaMax ? '' : ' empty'}"><div class="pc-bar-fill vida" style="width:${vidaPct}%"></div></div><span class="pc-bar-val">${v.vida||0}/${vidaMax||'—'}</span></div>
         <div class="pc-bar-row"><span class="pc-bar-icon">🧠</span><div class="pc-bar-wrap${sanMax ? '' : ' empty'}"><div class="pc-bar-fill sanidade" style="width:${sanPct}%"></div></div><span class="pc-bar-val">${v.sanidade||0}/${sanMax||'—'}</span></div>
         <div class="pc-bar-row"><span class="pc-bar-icon">⚡</span><div class="pc-bar-wrap${enMax ? '' : ' empty'}"><div class="pc-bar-fill energia" style="width:${enPct}%"></div></div><span class="pc-bar-val">${v.energia||0}/${enMax||'—'}</span></div>
+      </div>`;
+    const level = p.level || 0;
+    const bonusLevel = p.bonus_level || 0;
+    const levelHtml = p.is_gm ? '' : `
+      <div class="pc-level" onclick="openLevelPanel('${sid}')" title="Clique para ver os ganhos deste nível">
+        🏆 Nível ${level}${bonusLevel > 0 ? ` <span class="pc-level-bonus">+ Bônus ${bonusLevel}</span>` : ''}
       </div>`;
     const actionsHtml = isGM && !p.is_gm ? `
       <div class="pc-actions">
         <button class="pc-action-btn" onclick="requestPlayerSheet('${sid}')">📋 Ficha</button>
         <button class="pc-action-btn" onclick="editPlayerVitals('${sid}')">✏️ Vitais</button>
+        <button class="pc-action-btn" onclick="openLevelPanel('${sid}')">🏆 Nível</button>
       </div>` : '';
     const card = document.createElement('div');
     card.className = 'player-card';
@@ -97,6 +105,7 @@ function renderPlayers() {
         ${gmBadge}
       </div>
       ${vitalsHtml}
+      ${levelHtml}
       ${actionsHtml}`;
     el.appendChild(card);
   }
@@ -158,6 +167,10 @@ socket.on('room_state', (data) => {
     const ta = document.getElementById('table-notes');
     if (ta) ta.value = data.notes || '';
   }
+  if (data.library) {
+    library = data.library;
+    renderLibraryTree();
+  }
 });
 
 let _notesDebounce = null;
@@ -172,12 +185,195 @@ socket.on('notes_updated', (data) => {
   if (ta && document.activeElement !== ta) ta.value = data.notes || '';
 });
 
+// ===================== BIBLIOTECA DO SISTEMA =====================
+let library = {};
+let libOpenFolders = new Set();
+let libCurrentPageId = null;
+let libPendingDeleteId = null;
+let _libRenameDebounce = null, _libContentDebounce = null;
+
+function libTreeChildren() {
+  const childrenOf = {};
+  for (const item of Object.values(library)) {
+    const key = item.parentId || '__root__';
+    (childrenOf[key] = childrenOf[key] || []).push(item);
+  }
+  const sortFn = (a, b) => (a.type === b.type ? a.name.localeCompare(b.name, 'pt-BR') : (a.type === 'folder' ? -1 : 1));
+  Object.values(childrenOf).forEach(arr => arr.sort(sortFn));
+  return childrenOf;
+}
+
+function renderLibraryTree() {
+  const root = document.getElementById('library-tree');
+  if (!root) return;
+  const childrenOf = libTreeChildren();
+
+  function renderNode(item) {
+    if (item.type === 'folder') {
+      const isOpen = libOpenFolders.has(item.id);
+      const kids = childrenOf[item.id] || [];
+      const kidsHtml = kids.map(renderNode).join('');
+      return `
+        <div class="lib-row lib-folder-row" data-id="${item.id}" onclick="libToggleFolder('${item.id}')">
+          <span class="lib-toggle">${isOpen ? '▼' : '▶'}</span>
+          <span class="lib-icon">📁</span>
+          <span class="lib-name" data-id="${item.id}" onclick="event.stopPropagation()" onblur="libSaveName(this)" onkeydown="libNameKeydown(event,this)">${escHtml(item.name)}</span>
+          <span class="lib-row-actions gm-only">
+            <button onclick="event.stopPropagation();libCreateItem('${item.id}','folder')" title="Nova subpasta">📁+</button>
+            <button onclick="event.stopPropagation();libCreateItem('${item.id}','page')" title="Nova página">📄+</button>
+            <button onclick="event.stopPropagation();libDeleteItem('${item.id}',this)" title="Excluir pasta e conteúdo">🗑️</button>
+          </span>
+        </div>
+        <div class="lib-children" style="display:${isOpen ? 'block' : 'none'}">${kidsHtml}</div>`;
+    }
+    return `
+      <div class="lib-row lib-page-row${item.id === libCurrentPageId ? ' active' : ''}" data-id="${item.id}" onclick="libOpenPage('${item.id}')">
+        <span class="lib-icon">📄</span>
+        <span class="lib-name">${escHtml(item.name)}</span>
+        <span class="lib-row-actions gm-only">
+          <button onclick="event.stopPropagation();libDeleteItem('${item.id}',this)" title="Excluir página">🗑️</button>
+        </span>
+      </div>`;
+  }
+
+  const roots = childrenOf['__root__'] || [];
+  root.innerHTML = roots.map(renderNode).join('') || '<div class="lib-empty-hint">Nenhum item ainda.</div>';
+  root.querySelectorAll('.lib-name[data-id]').forEach(el => { el.contentEditable = isGM; });
+}
+
+function libFilterTree(query) {
+  const q = (query || '').trim().toLowerCase();
+  const root = document.getElementById('library-tree');
+  if (!root) return;
+  if (!q) { renderLibraryTree(); return; }
+  const matches = Object.values(library).filter(it => it.name.toLowerCase().includes(q) && it.type === 'page');
+  root.innerHTML = matches.map(item => `
+    <div class="lib-row lib-page-row${item.id === libCurrentPageId ? ' active' : ''}" data-id="${item.id}" onclick="libOpenPage('${item.id}')">
+      <span class="lib-icon">📄</span>
+      <span class="lib-name">${escHtml(item.name)}</span>
+    </div>`).join('') || '<div class="lib-empty-hint">Nada encontrado.</div>';
+}
+
+function libToggleFolder(id) {
+  if (libOpenFolders.has(id)) libOpenFolders.delete(id); else libOpenFolders.add(id);
+  renderLibraryTree();
+}
+
+function libCreateItem(parentId, type) {
+  if (!isGM) return;
+  if (parentId) libOpenFolders.add(parentId);
+  socket.emit('library_create', { room_id: ROOM_ID, parentId, type });
+}
+
+socket.on('library_item_created', (item) => {
+  library[item.id] = item;
+  renderLibraryTree();
+});
+
+function libSaveName(el) {
+  if (!isGM) return;
+  const id = el.dataset.id;
+  const name = el.textContent.trim() || 'Sem nome';
+  el.textContent = name;
+  if (library[id] && library[id].name !== name) {
+    library[id].name = name;
+    socket.emit('library_rename', { room_id: ROOM_ID, id, name });
+  }
+}
+function libNameKeydown(e, el) {
+  if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+}
+
+socket.on('library_item_renamed', (data) => {
+  if (library[data.id]) library[data.id].name = data.name;
+  renderLibraryTree();
+  if (libCurrentPageId === data.id) {
+    const titleEl = document.getElementById('lib-page-title');
+    if (titleEl && document.activeElement !== titleEl) titleEl.textContent = data.name;
+  }
+});
+
+function libDeleteItem(id, btn) {
+  if (!isGM) return;
+  if (libPendingDeleteId === id) {
+    socket.emit('library_delete', { room_id: ROOM_ID, id });
+    libPendingDeleteId = null;
+    return;
+  }
+  libPendingDeleteId = id;
+  const orig = btn.textContent, origTitle = btn.title;
+  btn.textContent = '⚠️';
+  btn.title = 'Clique de novo para confirmar a exclusão';
+  setTimeout(() => {
+    if (libPendingDeleteId === id) { libPendingDeleteId = null; btn.textContent = orig; btn.title = origTitle; }
+  }, 3000);
+}
+
+function libDeleteCurrent(btn) {
+  if (!isGM || !libCurrentPageId) return;
+  libDeleteItem(libCurrentPageId, btn);
+}
+
+socket.on('library_item_deleted', (data) => {
+  (data.deletedIds || []).forEach(id => delete library[id]);
+  if (data.deletedIds?.includes(libCurrentPageId)) {
+    libCurrentPageId = null;
+    document.getElementById('lib-page-view')?.classList.add('hidden');
+    document.getElementById('lib-empty-state')?.classList.remove('hidden');
+  }
+  renderLibraryTree();
+});
+
+function libOpenPage(id) {
+  const item = library[id];
+  if (!item || item.type !== 'page') return;
+  libCurrentPageId = id;
+  document.getElementById('lib-empty-state')?.classList.add('hidden');
+  document.getElementById('lib-page-view')?.classList.remove('hidden');
+  const titleEl = document.getElementById('lib-page-title');
+  const contentEl = document.getElementById('lib-page-content');
+  if (titleEl) { titleEl.textContent = item.name; titleEl.contentEditable = isGM; }
+  if (contentEl) { contentEl.innerHTML = item.content || ''; contentEl.contentEditable = isGM; }
+  renderLibraryTree();
+}
+
+function libRenameTitle() {
+  if (!isGM || !libCurrentPageId) return;
+  clearTimeout(_libRenameDebounce);
+  const name = document.getElementById('lib-page-title').textContent.trim() || 'Sem título';
+  _libRenameDebounce = setTimeout(() => {
+    if (library[libCurrentPageId]) library[libCurrentPageId].name = name;
+    socket.emit('library_rename', { room_id: ROOM_ID, id: libCurrentPageId, name });
+  }, 500);
+}
+
+function libUpdateContent() {
+  if (!isGM || !libCurrentPageId) return;
+  clearTimeout(_libContentDebounce);
+  const id = libCurrentPageId;
+  const html = document.getElementById('lib-page-content').innerHTML;
+  _libContentDebounce = setTimeout(() => {
+    if (library[id]) library[id].content = html;
+    socket.emit('library_update_content', { room_id: ROOM_ID, id, content: html });
+  }, 500);
+}
+
+socket.on('library_item_updated', (data) => {
+  if (library[data.id]) library[data.id].content = data.content;
+  if (libCurrentPageId === data.id) {
+    const el = document.getElementById('lib-page-content');
+    if (el && document.activeElement !== el) el.innerHTML = data.content || '';
+  }
+});
+
 let _msgHandler = null;
 if (_msgHandler) socket.off('new_message', _msgHandler);
 _msgHandler = (msg) => {
   appendMessage(msg);
-  if (msg.type === 'roll') showDice3D(msg.total, msg.rolls?.[0] || msg.total, msg.author);
-  if (msg.type === 'roll') addDiceHistory(msg);
+  if (msg.type === 'roll') {
+    if (msg.author === playerName) showDice3D(msg.total, msg.rolls?.[0] || msg.total, msg.author);
+    addDiceHistory(msg);
+  }
 };
 socket.on('new_message', _msgHandler);
 
@@ -309,7 +505,8 @@ function appendMessage(msg) {
     if (msg.id) row.dataset.msgId = msg.id;
     const safeText = (msg.text || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeOrig = (msg.origAuthor || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    row.innerHTML = `<div class="msg-highlight-label">📌 Destaque por ${msg.author}</div><div class="msg-highlight-orig">originalmente de <strong>${safeOrig}</strong></div><div class="msg-highlight-text">${safeText}</div>`;
+    const origLine = safeOrig && safeOrig !== msg.author ? `<div class="msg-highlight-orig">originalmente de <strong>${safeOrig}</strong></div>` : '';
+    row.innerHTML = `<div class="msg-highlight-label">📌 Destaque por ${msg.author}</div>${origLine}<div class="msg-highlight-text">${safeText}</div>`;
     _addMsgActions(row, msg);
     list.appendChild(row);
     scrollMessages();
@@ -356,9 +553,20 @@ function appendMessage(msg) {
       </div>`;
   } else if (msg.type === 'file') {
     const isImg = msg.filetype && msg.filetype.startsWith('image/');
-    const bodyHtml = isImg
-      ? `<img src="${msg.filedata}" class="msg-img" alt="${msg.filename}" onclick="window.open(this.src)">`
-      : `<a class="msg-file-link" href="${msg.filedata}" download="${msg.filename}">📎 ${msg.filename}</a>`;
+    const category = msg.category && REVEAL_META[msg.category] ? msg.category : 'none';
+    let bodyHtml;
+    if (isImg && category !== 'none' && !revealedImages.has(msg.id)) {
+      const meta = REVEAL_META[category];
+      bodyHtml = `
+        <div class="reveal-card ${meta.cls}" data-msg-id="${msg.id}" onclick="revealImage('${msg.id}', this)">
+          <img src="${msg.filedata}" class="reveal-img" alt="${msg.filename}">
+          <div class="reveal-cover">${meta.cover}<div class="reveal-label">${meta.label}</div></div>
+        </div>`;
+    } else if (isImg) {
+      bodyHtml = `<img src="${msg.filedata}" class="msg-img" alt="${msg.filename}" onclick="openLightbox(this.src)">`;
+    } else {
+      bodyHtml = `<a class="msg-file-link" href="${msg.filedata}" download="${msg.filename}">📎 ${msg.filename}</a>`;
+    }
     row.className = 'msg-row';
     row.innerHTML = `
       <div class="msg-avatar" style="background:${authorColor}">${(msg.author||'?')[0].toUpperCase()}</div>
@@ -437,12 +645,24 @@ function setChatMode(mode) {
   document.getElementById('persona-row').style.display = mode === 'persona' ? 'flex' : 'none';
 }
 
+function localSystemMessage(text) {
+  const list = document.getElementById('messages-list');
+  if (!list) return;
+  const el = document.createElement('div');
+  el.className = 'msg-system';
+  el.textContent = text;
+  list.appendChild(el);
+  scrollMessages();
+}
+
+const TABLE_LOCATION = 'Cidade das Flores';
+
 function sendChat() {
   const input = document.getElementById('chat-input');
   const text = (input.value || '').trim();
   if (!text) return;
 
-  // Comandos /rollDX
+  // Comandos /rollDX (qualquer número de faces, ex: /rollD6, /rollD12, /rollD20, /rollD6 3)
   const diceMatch = text.match(/^\/roll[Dd](\d+)(?:\s+(\d+))?$/);
   if (diceMatch) {
     const sides = parseInt(diceMatch[1]);
@@ -460,6 +680,67 @@ function sendChat() {
     return;
   }
 
+  // /segredo — jogador manda direto pro GM sem precisar saber o nome; GM manda pra um jogador específico
+  const segredoMatch = text.match(/^\/segredo\s+([\s\S]+)$/i);
+  if (segredoMatch) {
+    const rest = segredoMatch[1];
+    if (isGM) {
+      const gmTargetMatch = rest.match(/^(\S+)\s+([\s\S]+)$/);
+      const targetPlayer = gmTargetMatch && Object.values(players).find(p => p.name.toLowerCase() === gmTargetMatch[1].toLowerCase());
+      if (targetPlayer) {
+        socket.emit('chat_message', { room_id: ROOM_ID, text: gmTargetMatch[2], chat_type: 'whisper', target: targetPlayer.name });
+      } else {
+        localSystemMessage('Uso: /segredo NomeDoJogador mensagem');
+      }
+    } else {
+      const gmPlayer = Object.values(players).find(p => p.is_gm);
+      if (gmPlayer) {
+        socket.emit('chat_message', { room_id: ROOM_ID, text: rest, chat_type: 'whisper', target: gmPlayer.name });
+      } else {
+        localSystemMessage('Nenhum mestre está na sala agora.');
+      }
+    }
+    input.value = '';
+    return;
+  }
+
+  // /desc texto — narração rápida, sem precisar trocar o modo do chat
+  const descMatch = text.match(/^\/desc\s+([\s\S]+)$/i);
+  if (descMatch) {
+    socket.emit('chat_message', { room_id: ROOM_ID, text: descMatch[1], chat_type: 'narrador' });
+    input.value = '';
+    return;
+  }
+
+  // /fix texto — fixa a mensagem como destaque na mesa (só GM)
+  const fixMatch = text.match(/^\/fix\s+([\s\S]+)$/i);
+  if (fixMatch) {
+    if (!isGM) { localSystemMessage('Somente o mestre pode fixar mensagens.'); input.value = ''; return; }
+    socket.emit('chat_message', { room_id: ROOM_ID, text: fixMatch[1], chat_type: 'highlight' });
+    input.value = '';
+    return;
+  }
+
+  // /time 14:30 ou /time>14:30 — marca o horário da história na mesa (só GM)
+  const timeMatch = text.match(/^\/time(?:\s+|>)(\d{1,2}):(\d{2})$/i);
+  if (timeMatch) {
+    if (!isGM) { localSystemMessage('Somente o mestre pode ajustar o horário da mesa.'); input.value = ''; return; }
+    const hh = parseInt(timeMatch[1]), mm = parseInt(timeMatch[2]);
+    if (hh > 23 || mm > 59) { localSystemMessage('Horário inválido. Use, por exemplo: /time 14:30'); input.value = ''; return; }
+    const hhStr = String(hh).padStart(2, '0'), mmStr = String(mm).padStart(2, '0');
+    socket.emit('chat_message', { room_id: ROOM_ID, text: `São ${hhStr}:${mmStr} na ${TABLE_LOCATION}.`, chat_type: 'narrador' });
+    input.value = '';
+    return;
+  }
+
+  // /clear — limpa o chat da mesa pra todo mundo (só GM)
+  if (/^\/clear$/i.test(text)) {
+    if (!isGM) { localSystemMessage('Somente o mestre pode limpar o chat.'); input.value = ''; return; }
+    socket.emit('clear_chat', { room_id: ROOM_ID });
+    input.value = '';
+    return;
+  }
+
   if (chatMode === 'persona') {
     const persona = (document.getElementById('persona-name')?.value || '').trim();
     if (!persona) { document.getElementById('persona-name')?.focus(); return; }
@@ -471,6 +752,11 @@ function sendChat() {
   }
   input.value = '';
 }
+
+socket.on('chat_cleared', () => {
+  const list = document.getElementById('messages-list');
+  if (list) list.innerHTML = '';
+});
 
 socket.on('message_deleted', (data) => {
   const el = document.querySelector(`[data-msg-id="${data.msg_id}"]`);
@@ -495,18 +781,31 @@ function chatKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 }
 
+let currentImgCategory = 'none';
+
+function setImgCategory(cat, btn) {
+  currentImgCategory = cat;
+  document.querySelectorAll('.img-cat-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+}
+
 function sendFile(event) {
   const file = event.target.files[0];
   if (!file) return;
+  const isImg = file.type && file.type.startsWith('image/');
+  const category = isImg ? currentImgCategory : 'none';
   const reader = new FileReader();
   reader.onload = (e) => {
     socket.emit('file_message', {
       room_id: ROOM_ID, filename: file.name,
-      filetype: file.type, filedata: e.target.result
+      filetype: file.type, filedata: e.target.result, category
     });
   };
   reader.readAsDataURL(file);
   event.target.value = '';
+  if (isImg && currentImgCategory !== 'none') {
+    setImgCategory('none', document.querySelector('.img-cat-btn[data-cat="none"]'));
+  }
 }
 
 function copyRoomLink() {
@@ -518,6 +817,43 @@ function copyRoomLink() {
     setTimeout(() => btn.textContent = orig, 2000);
   });
 }
+
+// ===================== IMAGENS: REVELAÇÃO E LIGHTBOX =====================
+const revealedImages = new Set();
+const REVEAL_META = {
+  enemy: { cls: 'reveal-enemy', label: 'Clique para revelar', cover: '<div class="reveal-icon">🍂</div>' },
+  clue:  { cls: 'reveal-clue',  label: 'Clique para abrir o envelope', cover: '<div class="reveal-icon">🗂️</div>' },
+  npc:   { cls: 'reveal-npc',   label: 'Clique para revelar', cover: '<div class="reveal-icon reveal-icon-bud">🌱</div><div class="reveal-icon reveal-icon-bloom">🌸</div>' }
+};
+
+function revealImage(msgId, cardEl) {
+  if (cardEl.classList.contains('revealed')) {
+    const img = cardEl.querySelector('.reveal-img');
+    if (img) openLightbox(img.src);
+    return;
+  }
+  if (cardEl.classList.contains('revealing')) return;
+  cardEl.classList.add('revealing');
+  revealedImages.add(msgId);
+  setTimeout(() => cardEl.classList.add('revealed'), 1100);
+}
+
+function openLightbox(src) {
+  const overlay = document.getElementById('img-lightbox');
+  const img = document.getElementById('img-lightbox-img');
+  if (!overlay || !img) return;
+  img.src = src;
+  overlay.classList.remove('hidden');
+}
+
+function closeLightbox() {
+  const overlay = document.getElementById('img-lightbox');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeLightbox();
+});
 
 // ===================== DICE =====================
 let _diceOverlayTimer = null;
@@ -1662,23 +1998,39 @@ socket.on('player_sheet_data', (data) => {
 });
 
 
+let _vitalsEditTarget = null;
+
 function editPlayerVitals(sid) {
   const p = players[sid];
   if (!p) return;
   const v = p.vitals || {};
-  const vida = prompt('Vida atual:', v.vida || 0);
-  if (vida === null) return;
-  const vidaMax = prompt('Vida máx:', v.vida_max || 60);
-  const san = prompt('Mental atual:', v.sanidade || 0);
-  const sanMax = prompt('Mental máx:', v.sanidade_max || 50);
-  const en = prompt('Energia atual:', v.energia || 0);
-  const enMax = prompt('Energia máx:', v.energia_max || 50);
+  _vitalsEditTarget = sid;
+  document.getElementById('vitals-modal-title').textContent =
+    sid === socket.id ? '✏️ Meus Vitais' : `✏️ Vitais de ${p.name}`;
+  document.getElementById('ve-vida').value = v.vida || 0;
+  document.getElementById('ve-vida-max').value = v.vida_max || 60;
+  document.getElementById('ve-sanidade').value = v.sanidade || 0;
+  document.getElementById('ve-sanidade-max').value = v.sanidade_max || 50;
+  document.getElementById('ve-energia').value = v.energia || 0;
+  document.getElementById('ve-energia-max').value = v.energia_max || 50;
+  document.getElementById('modal-vitals').classList.remove('hidden');
+}
+
+function saveVitalsEdit() {
+  if (!_vitalsEditTarget) return;
+  const p = players[_vitalsEditTarget];
+  const v = p?.vitals || {};
   const newVitals = {
-    ...v, vida: parseInt(vida)||0, vida_max: parseInt(vidaMax)||0,
-    sanidade: parseInt(san)||0, sanidade_max: parseInt(sanMax)||0,
-    energia: parseInt(en)||0, energia_max: parseInt(enMax)||0
+    ...v,
+    vida: parseInt(document.getElementById('ve-vida').value) || 0,
+    vida_max: parseInt(document.getElementById('ve-vida-max').value) || 0,
+    sanidade: parseInt(document.getElementById('ve-sanidade').value) || 0,
+    sanidade_max: parseInt(document.getElementById('ve-sanidade-max').value) || 0,
+    energia: parseInt(document.getElementById('ve-energia').value) || 0,
+    energia_max: parseInt(document.getElementById('ve-energia-max').value) || 0
   };
-  socket.emit('update_vitals', { room_id: ROOM_ID, target_sid: sid, vitals: newVitals });
+  socket.emit('update_vitals', { room_id: ROOM_ID, target_sid: _vitalsEditTarget, vitals: newVitals });
+  closeModal('modal-vitals');
 }
 
 socket.on('player_vitals_updated', (data) => {
@@ -1686,9 +2038,94 @@ socket.on('player_vitals_updated', (data) => {
   renderPlayers();
 });
 
+// ===================== NÍVEL AUTOMÁTICO =====================
+const LEVEL_GAINS = [
+  '+3 pontos em atributos, +2 pontos em perícia',
+  '+5 pontos em atributos',
+  '+1 habilidade criada ou da sua classe, +2 pontos em perícias',
+  '+3 pontos em atributos, +2 pontos em perícia',
+  '+1 habilidade criada ou da sua classe, +2 pontos em perícias',
+  '+5 pontos em atributos',
+  '+1 habilidade criada ou da sua classe, +3 pontos em atributo',
+  '+3 pontos em atributos, +2 pontos em perícia',
+  '+1 habilidade criada ou da sua classe, +2 pontos em perícias',
+  '+5 pontos em atributos, +5 pontos em perícia',
+  '+3 pontos em atributos, +2 pontos em perícia'
+];
+const BONUS_GAINS = [
+  null,
+  'Crie uma ultimate paranormal — +5 pontos em atributos, +5 pontos em perícia',
+  'Crie uma habilidade paranormal — +5 pontos em atributos, +5 pontos em perícia',
+  'Crie uma habilidade paranormal — +5 pontos em atributos, +5 pontos em perícia',
+  'Crie uma habilidade paranormal — +5 pontos em atributos, +5 pontos em perícia',
+  'Crie uma ultimate paranormal — +5 pontos em atributos, +5 pontos em perícia'
+];
+function levelGainText(lvl) { return LEVEL_GAINS[lvl] || ''; }
+function bonusGainText(b) { return b > 0 ? BONUS_GAINS[b] : 'Nenhum bônus ainda.'; }
+
+let _levelEditTarget = null;
+
+function openLevelPanel(sid) {
+  const p = players[sid];
+  if (!p) return;
+  const canEdit = isGM && !p.is_gm;
+  const level = p.level || 0;
+  const bonus = p.bonus_level || 0;
+  document.getElementById('level-modal-title').textContent = `🏆 Nível de ${p.name}`;
+  document.getElementById('level-modal-view').classList.toggle('hidden', canEdit);
+  document.getElementById('level-modal-edit').classList.toggle('hidden', !canEdit);
+
+  if (canEdit) {
+    _levelEditTarget = sid;
+    const lvSel = document.getElementById('lv-level');
+    lvSel.innerHTML = LEVEL_GAINS.map((_, i) => `<option value="${i}">${i}</option>`).join('');
+    lvSel.value = level;
+    const bonusSel = document.getElementById('lv-bonus');
+    bonusSel.innerHTML = [0, 1, 2, 3, 4, 5].map(i => `<option value="${i}">${i === 0 ? 'Nenhum' : i}</option>`).join('');
+    bonusSel.value = bonus;
+    updateLevelPreview();
+  } else {
+    document.getElementById('level-view-badge').textContent = `Nível ${level}`;
+    document.getElementById('level-view-gain').textContent = levelGainText(level);
+    const bonusBadge = document.getElementById('bonus-view-badge');
+    const bonusGainEl = document.getElementById('bonus-view-gain');
+    bonusBadge.classList.toggle('hidden', bonus === 0);
+    if (bonus > 0) {
+      bonusBadge.textContent = `Bônus ${bonus}`;
+      bonusGainEl.textContent = bonusGainText(bonus);
+    } else {
+      bonusGainEl.textContent = '';
+    }
+  }
+  document.getElementById('modal-level').classList.remove('hidden');
+}
+
+function updateLevelPreview() {
+  const lvl = parseInt(document.getElementById('lv-level').value) || 0;
+  const bonus = parseInt(document.getElementById('lv-bonus').value) || 0;
+  document.getElementById('lv-level-preview').textContent = levelGainText(lvl);
+  document.getElementById('lv-bonus-preview').textContent = bonusGainText(bonus);
+}
+
+function saveLevelEdit() {
+  if (!_levelEditTarget) return;
+  const level = parseInt(document.getElementById('lv-level').value) || 0;
+  const bonus_level = parseInt(document.getElementById('lv-bonus').value) || 0;
+  socket.emit('update_level', { room_id: ROOM_ID, target_sid: _levelEditTarget, level, bonus_level });
+  closeModal('modal-level');
+}
+
+socket.on('player_level_updated', (data) => {
+  if (players[data.sid]) {
+    players[data.sid].level = data.level;
+    players[data.sid].bonus_level = data.bonus_level;
+  }
+  renderPlayers();
+  if (data.sid === socket.id) updateSheetLevelDisplay();
+});
+
 // ===================== FICHA =====================
 const SHEET_KEY = 'rpg_sheet_v2';
-let avatarScale = 1, avatarX = 0, avatarY = 0, avatarDragging = false, avatarDragStart = { x: 0, y: 0 };
 
 function switchSheetTab(name, btn) {
   document.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
@@ -1700,7 +2137,18 @@ function switchSheetTab(name, btn) {
 function openSheet() {
   loadSheetFromStorage();
   switchSheetTab('perfil', document.querySelector('.sheet-tab[data-tab="perfil"]'));
+  updateSheetLevelDisplay();
   document.getElementById('modal-sheet').classList.remove('hidden');
+}
+
+function updateSheetLevelDisplay() {
+  const el = document.getElementById('sh-nivel-display');
+  if (!el) return;
+  const me = players[socket.id] || {};
+  const level = me.level || 0;
+  const bonus = me.bonus_level || 0;
+  el.textContent = bonus > 0 ? `${level} +B${bonus}` : `${level}`;
+  el.title = `Nível ${level}: ${levelGainText(level)}${bonus > 0 ? ' • Bônus ' + bonus + ': ' + bonusGainText(bonus) : ''}`;
 }
 
 function closeModal(id) {
@@ -1753,7 +2201,7 @@ function gatherSheet() {
     vida: g('sh-vida'), 'vida-max': g('sh-vida-max'),
     sanidade: g('sh-sanidade'), 'sanidade-max': g('sh-sanidade-max'),
     energia: g('sh-energia'), 'energia-max': g('sh-energia-max'),
-    xp: g('sh-xp'), nivel: g('sh-nivel'),
+    xp: g('sh-xp'),
     equipamentos: g('sh-equipamentos'), personalidade: g('sh-personalidade'),
     'nao-pode': g('sh-nao-pode'), 'mais-ama': g('sh-mais-ama'),
     'mais-odeia': g('sh-mais-odeia'), 'mais-teme': g('sh-mais-teme'),
@@ -1779,7 +2227,6 @@ function gatherSheet() {
     });
   });
   s.avatar = document.getElementById('sh-avatar')?.src || null;
-  s.avatarTransform = { scale: avatarScale, x: avatarX, y: avatarY };
   return s;
 }
 
@@ -1801,7 +2248,7 @@ function applySheet(s) {
   set('sh-vida', s.vida); set('sh-vida-max', s['vida-max']);
   set('sh-sanidade', s.sanidade); set('sh-sanidade-max', s['sanidade-max']);
   set('sh-energia', s.energia); set('sh-energia-max', s['energia-max']);
-  set('sh-xp', s.xp); set('sh-nivel', s.nivel);
+  set('sh-xp', s.xp);
   set('sh-equipamentos', s.equipamentos); set('sh-personalidade', s.personalidade);
   set('sh-nao-pode', s['nao-pode']); set('sh-mais-ama', s['mais-ama']);
   set('sh-mais-odeia', s['mais-odeia']); set('sh-mais-teme', s['mais-teme']);
@@ -1824,12 +2271,6 @@ function applySheet(s) {
     if (img) { img.src = s.avatar; img.style.display = 'block'; }
     if (ph) ph.style.display = 'none';
     if (ctrl) ctrl.style.display = 'flex';
-    if (s.avatarTransform) {
-      avatarScale = s.avatarTransform.scale || 1;
-      avatarX = s.avatarTransform.x || 0;
-      avatarY = s.avatarTransform.y || 0;
-      applyAvatarTransform();
-    }
   }
   updateAttrPoints(); updatePerPoints();
 }
@@ -1912,8 +2353,10 @@ function addHabilidade(data = {}) {
 }
 
 // ===================== NOTES EDITOR =====================
+let _activeNoteEditorId = 'sh-anotacoes';
+
 function _noteInsertImg(src) {
-  const el = document.getElementById('sh-anotacoes');
+  const el = document.getElementById(_activeNoteEditorId);
   if (!el) return;
   el.focus();
   document.execCommand('insertHTML', false,
@@ -1986,11 +2429,17 @@ function noteImgDelete() {
   _hideNoteImgToolbar();
 }
 
-function initNoteEditor() {
-  const el = document.getElementById('sh-anotacoes');
-  if (!el) return;
+const _noteEditorIds = [];
 
+function initNoteEditor(editorId) {
+  editorId = editorId || 'sh-anotacoes';
+  const el = document.getElementById(editorId);
+  if (!el) return;
+  _noteEditorIds.push(editorId);
+
+  el.addEventListener('focus', () => { _activeNoteEditorId = editorId; });
   el.addEventListener('click', (e) => {
+    _activeNoteEditorId = editorId;
     if (e.target.tagName === 'IMG') {
       e.preventDefault();
       _showNoteImgToolbar(e.target);
@@ -2002,13 +2451,14 @@ function initNoteEditor() {
   document.addEventListener('click', (e) => {
     if (_selectedNoteImg &&
         !e.target.closest('#note-img-toolbar') &&
-        !e.target.closest('#sh-anotacoes')) {
+        !_noteEditorIds.some(id => e.target.closest('#' + id))) {
       _hideNoteImgToolbar();
     }
   });
 
   const wInput = document.getElementById('note-img-w');
-  if (wInput) {
+  if (wInput && !wInput.dataset.wired) {
+    wInput.dataset.wired = '1';
     wInput.addEventListener('input', () => {
       const v = parseInt(wInput.value);
       if (_selectedNoteImg && v >= 10 && v <= 100) {
@@ -2019,6 +2469,7 @@ function initNoteEditor() {
   }
 
   el.addEventListener('paste', (e) => {
+    _activeNoteEditorId = editorId;
     const items = e.clipboardData?.items || [];
     for (const item of items) {
       if (item.type.startsWith('image/')) {
@@ -2042,47 +2493,21 @@ function initNoteEditor() {
 
 function loadSheetAvatar(event) {
   const file = event.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
+  openAvatarCropper(file, (croppedDataUrl) => {
     const img = document.getElementById('sh-avatar');
     const ph = document.getElementById('sh-avatar-placeholder');
     const ctrl = document.getElementById('sh-avatar-controls');
-    img.src = e.target.result; img.style.display = 'block';
+    img.src = croppedDataUrl; img.style.display = 'block';
     if (ph) ph.style.display = 'none';
     if (ctrl) ctrl.style.display = 'flex';
-    avatarScale = 1; avatarX = 0; avatarY = 0;
-    applyAvatarTransform();
-  };
-  reader.readAsDataURL(file);
+  });
+  event.target.value = '';
 }
 
 document.getElementById('sh-avatar-slot').addEventListener('click', (e) => {
   if (e.target.closest('.sheet-avatar-controls')) return;
   document.getElementById('sh-img-upload').click();
 });
-
-let _avatarMouseDown = false, _avatarStart = {};
-document.getElementById('sh-avatar-viewport').addEventListener('mousedown', (e) => {
-  if (document.getElementById('sh-avatar').style.display === 'none') return;
-  _avatarMouseDown = true; _avatarStart = { x: e.clientX - avatarX, y: e.clientY - avatarY };
-  e.preventDefault();
-});
-document.addEventListener('mousemove', (e) => {
-  if (!_avatarMouseDown) return;
-  avatarX = e.clientX - _avatarStart.x; avatarY = e.clientY - _avatarStart.y;
-  applyAvatarTransform();
-});
-document.addEventListener('mouseup', () => { _avatarMouseDown = false; });
-
-function avatarZoom(delta) {
-  avatarScale = Math.max(0.1, Math.min(5, avatarScale + delta));
-  applyAvatarTransform();
-}
-function resetAvatar() { avatarScale = 1; avatarX = 0; avatarY = 0; applyAvatarTransform(); }
-function applyAvatarTransform() {
-  const img = document.getElementById('sh-avatar');
-  if (img) img.style.transform = `translate(${avatarX}px, ${avatarY}px) scale(${avatarScale})`;
-}
 
 // ===================== AVATAR DO GM =====================
 function gmAvatarClick() {
@@ -2092,19 +2517,155 @@ function gmAvatarClick() {
 
 function setGMAvatar(event) {
   const file = event.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const dataUrl = e.target.result;
+  openAvatarCropper(file, (dataUrl) => {
     sessionStorage.setItem('gm_avatar', dataUrl);
     // Atualiza avatar na nav
     const el = document.getElementById('nav-avatar');
     if (el) el.innerHTML = `<img src="${dataUrl}" alt="">`;
     // Compartilha com todos via share_sheet (reusa o mecanismo existente)
     socket.emit('share_sheet', { room_id: ROOM_ID, sheet: { avatar: dataUrl, name: playerName } });
-  };
-  reader.readAsDataURL(file);
+  });
   event.target.value = '';
 }
+
+// ===================== RECORTE DE FOTO (estilo Instagram) =====================
+const CROP_VIEWPORT = 280;
+const CROP_OUTPUT = 500;
+let _cropScale = 1, _cropMinScale = 1, _cropOffsetX = 0, _cropOffsetY = 0;
+let _cropOnConfirm = null;
+let _cropDragging = false, _cropDragStart = { x: 0, y: 0 };
+let _cropPinching = false, _cropPinchStartDist = 0, _cropPinchStartScale = 1;
+
+function openAvatarCropper(file, onConfirm) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = document.getElementById('crop-img');
+    img.onload = () => {
+      _cropMinScale = CROP_VIEWPORT / Math.min(img.naturalWidth, img.naturalHeight);
+      _cropScale = _cropMinScale;
+      img.style.width = (img.naturalWidth * _cropScale) + 'px';
+      img.style.height = (img.naturalHeight * _cropScale) + 'px';
+      _cropOffsetX = (CROP_VIEWPORT - img.naturalWidth * _cropScale) / 2;
+      _cropOffsetY = (CROP_VIEWPORT - img.naturalHeight * _cropScale) / 2;
+      applyCropTransform();
+      document.getElementById('crop-zoom-slider').value = 1;
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  _cropOnConfirm = onConfirm;
+  document.getElementById('modal-avatar-crop').classList.remove('hidden');
+}
+
+function applyCropTransform() {
+  const img = document.getElementById('crop-img');
+  img.style.left = _cropOffsetX + 'px';
+  img.style.top = _cropOffsetY + 'px';
+}
+
+function clampCropOffset() {
+  const img = document.getElementById('crop-img');
+  const w = img.naturalWidth * _cropScale, h = img.naturalHeight * _cropScale;
+  const minX = Math.min(0, CROP_VIEWPORT - w), minY = Math.min(0, CROP_VIEWPORT - h);
+  _cropOffsetX = Math.max(minX, Math.min(0, _cropOffsetX));
+  _cropOffsetY = Math.max(minY, Math.min(0, _cropOffsetY));
+}
+
+function setCropScale(newScale) {
+  const img = document.getElementById('crop-img');
+  newScale = Math.max(_cropMinScale, Math.min(_cropMinScale * 4, newScale));
+  const center = CROP_VIEWPORT / 2;
+  const imgPointX = (center - _cropOffsetX) / _cropScale;
+  const imgPointY = (center - _cropOffsetY) / _cropScale;
+  _cropScale = newScale;
+  img.style.width = (img.naturalWidth * _cropScale) + 'px';
+  img.style.height = (img.naturalHeight * _cropScale) + 'px';
+  _cropOffsetX = center - imgPointX * _cropScale;
+  _cropOffsetY = center - imgPointY * _cropScale;
+  clampCropOffset();
+  applyCropTransform();
+}
+
+function onCropZoomSlider(val) {
+  setCropScale(_cropMinScale * parseFloat(val));
+}
+
+function cancelAvatarCrop() {
+  document.getElementById('modal-avatar-crop').classList.add('hidden');
+  _cropOnConfirm = null;
+}
+
+function confirmAvatarCrop() {
+  const img = document.getElementById('crop-img');
+  const canvas = document.createElement('canvas');
+  canvas.width = CROP_OUTPUT; canvas.height = CROP_OUTPUT;
+  const ctx = canvas.getContext('2d');
+  const k = CROP_OUTPUT / CROP_VIEWPORT;
+  ctx.drawImage(
+    img, 0, 0, img.naturalWidth, img.naturalHeight,
+    _cropOffsetX * k, _cropOffsetY * k,
+    img.naturalWidth * _cropScale * k, img.naturalHeight * _cropScale * k
+  );
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+  const cb = _cropOnConfirm;
+  cancelAvatarCrop();
+  if (cb) cb(dataUrl);
+}
+
+function _touchDist(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+(function initCropViewport() {
+  const vp = document.getElementById('crop-viewport');
+  vp.addEventListener('mousedown', (e) => {
+    _cropDragging = true;
+    _cropDragStart = { x: e.clientX - _cropOffsetX, y: e.clientY - _cropOffsetY };
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!_cropDragging) return;
+    _cropOffsetX = e.clientX - _cropDragStart.x;
+    _cropOffsetY = e.clientY - _cropDragStart.y;
+    clampCropOffset();
+    applyCropTransform();
+  });
+  document.addEventListener('mouseup', () => { _cropDragging = false; });
+
+  vp.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    setCropScale(_cropScale * (e.deltaY < 0 ? 1.08 : 0.93));
+    document.getElementById('crop-zoom-slider').value = (_cropScale / _cropMinScale).toFixed(2);
+  }, { passive: false });
+
+  vp.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      _cropDragging = true;
+      _cropDragStart = { x: e.touches[0].clientX - _cropOffsetX, y: e.touches[0].clientY - _cropOffsetY };
+    } else if (e.touches.length === 2) {
+      _cropDragging = false;
+      _cropPinching = true;
+      _cropPinchStartDist = _touchDist(e.touches);
+      _cropPinchStartScale = _cropScale;
+    }
+  }, { passive: true });
+  vp.addEventListener('touchmove', (e) => {
+    if (_cropPinching && e.touches.length === 2) {
+      const dist = _touchDist(e.touches);
+      setCropScale(_cropPinchStartScale * (dist / _cropPinchStartDist));
+      document.getElementById('crop-zoom-slider').value = (_cropScale / _cropMinScale).toFixed(2);
+    } else if (_cropDragging && e.touches.length === 1) {
+      _cropOffsetX = e.touches[0].clientX - _cropDragStart.x;
+      _cropOffsetY = e.touches[0].clientY - _cropDragStart.y;
+      clampCropOffset();
+      applyCropTransform();
+    }
+  }, { passive: true });
+  vp.addEventListener('touchend', () => { _cropDragging = false; _cropPinching = false; });
+})();
 
 // ===================== DADO D6 FRACIONADO =====================
 function rollFracD6() {
@@ -2312,7 +2873,8 @@ document.addEventListener('mouseup', () => { _tqRes = null; _tqDrag = null; });
 // ===================== LOAD ON START =====================
 document.addEventListener('DOMContentLoaded', () => {
   loadSheetFromStorage();
-  initNoteEditor();
+  initNoteEditor('sh-anotacoes');
+  initNoteEditor('lib-page-content');
   updateAttrPoints(); updatePerPoints();
   addInventoryItem('');
   if (isGM) {

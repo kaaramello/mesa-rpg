@@ -44,7 +44,8 @@ function loadRooms() {
         pins: data.pins || {},
         messages: data.messages || [],
         map: data.map || { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
-        notes: data.notes || ''
+        notes: data.notes || '',
+        library: data.library || {}
       };
     }
     console.log(`Salas carregadas: ${Object.keys(saved).join(', ') || '(nenhuma)'}`);
@@ -66,7 +67,8 @@ function saveRooms() {
           tokens: room.tokens,
           pins: room.pins,
           map: room.map,
-          notes: room.notes
+          notes: room.notes,
+          library: room.library
         };
       }
       fs.writeFileSync(SAVE_FILE, JSON.stringify(toSave, null, 2), 'utf8');
@@ -88,7 +90,8 @@ function getRoom(roomId) {
       pins: {},
       messages: [],
       map: { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
-      notes: ''
+      notes: '',
+      library: {}
     };
   }
   return rooms[roomId];
@@ -118,7 +121,7 @@ function emitToMsgAudience(io, room, roomId, msg, event, payload) {
 function broadcastPlayers(roomId, room) {
   const list = {};
   for (const [sid, p] of Object.entries(room.players)) {
-    list[sid] = { name: p.name, is_gm: p.is_gm, vitals: p.vitals || {} };
+    list[sid] = { name: p.name, is_gm: p.is_gm, vitals: p.vitals || {}, level: p.level || 0, bonus_level: p.bonus_level || 0 };
   }
   io.to(roomId).emit('player_list', list);
 }
@@ -145,7 +148,8 @@ io.on('connection', (socket) => {
     socket.join(room_id);
     room.players[socket.id] = {
       name: player_name, is_gm: !!is_gm,
-      sid: socket.id, token: playerToken, vitals: {}
+      sid: socket.id, token: playerToken, vitals: {},
+      level: 0, bonus_level: 0
     };
     const me = room.players[socket.id];
 
@@ -163,7 +167,8 @@ io.on('connection', (socket) => {
       pins: visiblePins,
       messages: room.messages.slice(-200).filter(m => isWhisperVisibleTo(m, me)),
       map: room.map,
-      notes: room.notes
+      notes: room.notes,
+      library: room.library
     });
 
     broadcastPlayers(room_id, room);
@@ -208,6 +213,19 @@ io.on('connection', (socket) => {
     }
     room.messages.push(msg);
     emitToMsgAudience(io, room, data.room_id, msg, 'new_message', msg);
+    saveRooms();
+  });
+
+  socket.on('clear_chat', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player?.is_gm) return;
+    room.messages = [];
+    io.to(data.room_id).emit('chat_cleared');
+    const msg = { type: 'system', text: `🗑️ O chat foi limpo por ${player.name}.`, id: msgId() };
+    room.messages.push(msg);
+    io.to(data.room_id).emit('new_message', msg);
     saveRooms();
   });
 
@@ -372,14 +390,94 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('update_level', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const requester = room.players[socket.id];
+    if (!requester?.is_gm) return;
+    const target = room.players[data.target_sid];
+    if (!target) return;
+    target.level = Math.max(0, Math.min(10, parseInt(data.level) || 0));
+    target.bonus_level = Math.max(0, Math.min(5, parseInt(data.bonus_level) || 0));
+    io.to(data.room_id).emit('player_level_updated', { sid: data.target_sid, level: target.level, bonus_level: target.bonus_level });
+    broadcastPlayers(data.room_id, room);
+    saveRooms();
+  });
+
+  function collectLibraryDescendants(library, id) {
+    const result = [id];
+    const stack = [id];
+    while (stack.length) {
+      const cur = stack.pop();
+      for (const item of Object.values(library)) {
+        if (item.parentId === cur) { result.push(item.id); stack.push(item.id); }
+      }
+    }
+    return result;
+  }
+
+  socket.on('library_create', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player?.is_gm) return;
+    const type = data.type === 'folder' ? 'folder' : 'page';
+    const item = {
+      id: msgId(), type,
+      name: String(data.name || (type === 'folder' ? 'Nova pasta' : 'Nova página')).slice(0, 80),
+      parentId: data.parentId || null
+    };
+    if (type === 'page') item.content = '';
+    room.library[item.id] = item;
+    io.to(data.room_id).emit('library_item_created', item);
+    saveRooms();
+  });
+
+  socket.on('library_rename', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player?.is_gm) return;
+    const item = room.library[data.id];
+    if (!item) return;
+    item.name = String(data.name || '').trim().slice(0, 80) || (item.type === 'folder' ? 'Nova pasta' : 'Nova página');
+    io.to(data.room_id).emit('library_item_renamed', { id: item.id, name: item.name });
+    saveRooms();
+  });
+
+  socket.on('library_update_content', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player?.is_gm) return;
+    const item = room.library[data.id];
+    if (!item || item.type !== 'page') return;
+    item.content = String(data.content || '').slice(0, 200000);
+    io.to(data.room_id).emit('library_item_updated', { id: item.id, content: item.content });
+    saveRooms();
+  });
+
+  socket.on('library_delete', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player?.is_gm) return;
+    if (!room.library[data.id]) return;
+    const ids = collectLibraryDescendants(room.library, data.id);
+    ids.forEach(id => delete room.library[id]);
+    io.to(data.room_id).emit('library_item_deleted', { deletedIds: ids });
+    saveRooms();
+  });
+
   socket.on('file_message', (data) => {
     const room = rooms[data.room_id];
     if (!room) return;
     const player = room.players[socket.id] || { name: 'Desconhecido' };
+    const category = ['enemy', 'clue', 'npc'].includes(data.category) ? data.category : 'none';
     const msg = {
       type: 'file', author: player.name,
       filename: data.filename, filetype: data.filetype, filedata: data.filedata,
-      id: msgId()
+      category, id: msgId()
     };
     io.to(data.room_id).emit('new_message', msg);
   });
@@ -424,12 +522,12 @@ io.on('connection', (socket) => {
     const player = room.players[socket.id] || { name: 'Desconhecido' };
     const label = String(data.label || 'Atributo').slice(0, 40);
     const value = parseInt(data.value) || 0;
-    const roll = Math.floor(Math.random() * 20) + 1;
+    const roll = Math.floor(Math.random() * 12) + 1;
     const total = roll + value;
     const success = total >= 12;
     const msg = {
       type: 'roll', author: player.name,
-      text: `testou ${label} (+${value}): 1d20 (${roll}) + ${value} = **${total}** → ${success ? 'SUCESSO ✅' : 'FALHA ❌'}`,
+      text: `testou ${label} (+${value}): 1d12 (${roll}) + ${value} = **${total}** → ${success ? 'SUCESSO ✅' : 'FALHA ❌'}`,
       rolls: [roll], total, id: msgId()
     };
     room.messages.push(msg);

@@ -1658,7 +1658,7 @@ function pinMenuAction(action) {
 
 socket.on('pin_added', (pin) => { pins[pin.id] = pin; drawMap(); });
 socket.on('pin_removed', (d) => { delete pins[d.pin_id]; if (mapInited) drawMap(); });
-socket.on('pin_updated', (pin) => { if (pins[pin.id]) pins[pin.id] = { ...pins[pin.id], ...pin }; if (mapInited) drawMap(); });
+socket.on('pin_updated', (pin) => { pins[pin.id] = { ...(pins[pin.id] || {}), ...pin }; if (mapInited) drawMap(); });
 
 socket.on('token_added', (tok) => { tokens[tok.id] = tok; drawMap(); });
 socket.on('token_moved', (d) => { if (tokens[d.token_id]) { tokens[d.token_id].x = d.x; tokens[d.token_id].y = d.y; drawMap(); } });

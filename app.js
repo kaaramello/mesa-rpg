@@ -221,6 +221,12 @@ io.on('connection', (socket) => {
         level: 0, bonus_level: 0, online: true
       };
     }
+    // Remove entradas offline fantasmas com mesmo nome+papel (sessões antigas com token diferente)
+    for (const [tok, offP] of Object.entries(room.offline)) {
+      if (offP.name === player_name && offP.is_gm === !!is_gm && tok !== playerToken) {
+        delete room.offline[tok];
+      }
+    }
     const me = room.players[socket.id];
 
     const visibleTokens = {};

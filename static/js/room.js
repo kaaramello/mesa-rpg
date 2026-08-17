@@ -1,13 +1,21 @@
 // ===================== INIT =====================
 const ROOM_ID = window.ROOM_ID;
-const playerName = sessionStorage.getItem('player_name') || 'Jogador';
-const isGM = sessionStorage.getItem('is_gm') === '1';
+const _LS = 'rpg_' + ROOM_ID + '_';
+
+// Valores da sessão atual têm prioridade; fallback para localStorage (persiste ao fechar aba)
+const playerName = sessionStorage.getItem('player_name') || localStorage.getItem(_LS + 'name') || 'Jogador';
+const isGM = (sessionStorage.getItem('is_gm') || localStorage.getItem(_LS + 'gm') || '') === '1';
+
+// Persiste para reconexão automática
+if (playerName !== 'Jogador') localStorage.setItem(_LS + 'name', playerName);
+localStorage.setItem(_LS + 'gm', isGM ? '1' : '0');
 
 function getSessionToken() {
-  let t = sessionStorage.getItem('rpg_session_token');
+  const key = _LS + 'token';
+  let t = localStorage.getItem(key);
   if (!t) {
     t = 'tk-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    sessionStorage.setItem('rpg_session_token', t);
+    localStorage.setItem(key, t);
   }
   return t;
 }
@@ -822,6 +830,10 @@ function sendFile(event) {
 
 function leaveRoom() {
   if (!confirm('Tem certeza que quer sair da mesa? Você será removido da lista de jogadores.')) return;
+  // Limpa dados persistentes desta sala para entrar de novo como uma pessoa nova
+  localStorage.removeItem(_LS + 'token');
+  localStorage.removeItem(_LS + 'name');
+  localStorage.removeItem(_LS + 'gm');
   socket.emit('leave_room');
   setTimeout(() => { window.location.href = '/'; }, 300);
 }

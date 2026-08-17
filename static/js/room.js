@@ -2536,6 +2536,35 @@ function _noteResizeAndInsert(file) {
   reader.readAsDataURL(file);
 }
 
+// ===================== RICH TEXT =====================
+function noteCmd(cmd) {
+  document.execCommand(cmd, false, null);
+}
+
+function noteHeading(level) {
+  document.execCommand('formatBlock', false, level === 0 ? 'p' : 'h' + level);
+}
+
+function noteColor(color, swatchId) {
+  document.execCommand('foreColor', false, color);
+  const dot = document.getElementById('note-color-swatch-' + swatchId);
+  if (dot) dot.style.color = color;
+}
+
+function noteImgAlign(align) {
+  if (!_selectedNoteImg) return;
+  const img = _selectedNoteImg;
+  img.style.display = 'block';
+  img.style.float = 'none';
+  if (align === 'left')   { img.style.marginLeft = '0';    img.style.marginRight = 'auto'; }
+  if (align === 'center') { img.style.marginLeft = 'auto'; img.style.marginRight = 'auto'; }
+  if (align === 'right')  { img.style.marginLeft = 'auto'; img.style.marginRight = '0';    }
+  document.querySelectorAll('.note-align-btn').forEach(b => b.classList.toggle('active', b.dataset.align === align));
+  // Dispara save da anotação ativa
+  const activeEl = document.getElementById(_activeNoteEditorId);
+  if (activeEl) activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function noteInsertFile(input) {
   const file = input.files[0];
   if (!file) return;
@@ -2560,6 +2589,12 @@ function _showNoteImgToolbar(img) {
     const w = img.style.width ? parseInt(img.style.width) : 100;
     input.value = isNaN(w) ? 100 : w;
   }
+  // Detecta alinhamento atual
+  const ml = img.style.marginLeft, mr = img.style.marginRight;
+  let curAlign = 'center';
+  if (ml === '0px' || ml === '0') curAlign = 'left';
+  else if (mr === '0px' || mr === '0') curAlign = 'right';
+  document.querySelectorAll('.note-align-btn').forEach(b => b.classList.toggle('active', b.dataset.align === curAlign));
 }
 
 function _hideNoteImgToolbar() {

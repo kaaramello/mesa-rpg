@@ -213,8 +213,22 @@
             <div id="lib-page-title" class="lib-page-title-input" data-placeholder="Título da página" oninput="libRenameTitle()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"></div>
             <button class="pc-action-btn gm-only" onclick="libDeleteCurrent(this)" title="Excluir esta página">🗑️ Excluir</button>
           </div>
-          <div class="notes-toolbar gm-only">
-            <label class="notes-tool-btn" title="Inserir imagem do computador">🖼️<input type="file" id="lib-page-file" accept="image/*" style="display:none" onchange="noteInsertFile(this)"></label>
+          <div class="notes-toolbar gm-only" id="lib-notes-toolbar">
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteCmd('bold')" title="Negrito (Ctrl+B)"><b>B</b></button>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteCmd('italic')" title="Itálico (Ctrl+I)"><i>I</i></button>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteCmd('underline')" title="Sublinhado"><u>U</u></button>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteCmd('strikeThrough')" title="Tachado"><s>S</s></button>
+            <span class="notes-sep"></span>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(1)" title="Título grande">H1</button>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(2)" title="Título médio">H2</button>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(0)" title="Parágrafo normal">¶</button>
+            <span class="notes-sep"></span>
+            <label class="notes-tool-btn note-color-btn" title="Cor do texto" onmousedown="event.preventDefault()">
+              <span class="note-color-swatch" id="note-color-swatch-lib">A</span>
+              <input type="color" class="note-color-input" value="#e8e8f0" oninput="noteColor(this.value,'lib')">
+            </label>
+            <span class="notes-sep"></span>
+            <label class="notes-tool-btn" title="Inserir imagem">🖼️<input type="file" id="lib-page-file" accept="image/*" style="display:none" onchange="noteInsertFile(this)"></label>
             <button class="notes-tool-btn" onclick="notePromptURL()" title="Inserir imagem por URL">🔗</button>
           </div>
           <div id="lib-page-content" class="notes-editor lib-page-editor" data-placeholder="Escreva o conteúdo da página..." oninput="libUpdateContent()"></div>
@@ -269,6 +283,23 @@
     </div>
   </div>
 
+
+  <!-- Toolbar de imagem — global, aparece ao clicar em qualquer imagem nos editores -->
+  <div id="note-img-toolbar" class="note-img-toolbar hidden">
+    <span class="note-img-tb-label">Tamanho:</span>
+    <button class="note-img-tb-btn" onmousedown="event.preventDefault()" onclick="noteImgSize(25)">25%</button>
+    <button class="note-img-tb-btn" onmousedown="event.preventDefault()" onclick="noteImgSize(50)">50%</button>
+    <button class="note-img-tb-btn" onmousedown="event.preventDefault()" onclick="noteImgSize(75)">75%</button>
+    <button class="note-img-tb-btn" onmousedown="event.preventDefault()" onclick="noteImgSize(100)">100%</button>
+    <input type="number" id="note-img-w" class="note-img-tb-input" min="10" max="100" placeholder="%" title="% da largura">
+    <span class="note-img-tb-label">%</span>
+    <span class="note-img-tb-sep"></span>
+    <span class="note-img-tb-label">Posição:</span>
+    <button class="note-img-tb-btn note-align-btn" data-align="left" onmousedown="event.preventDefault()" onclick="noteImgAlign('left')" title="Esquerda">◀</button>
+    <button class="note-img-tb-btn note-align-btn" data-align="center" onmousedown="event.preventDefault()" onclick="noteImgAlign('center')" title="Centro">■</button>
+    <button class="note-img-tb-btn note-align-btn" data-align="right" onmousedown="event.preventDefault()" onclick="noteImgAlign('right')" title="Direita">▶</button>
+    <button class="note-img-tb-btn note-img-tb-del" onmousedown="event.preventDefault()" onclick="noteImgDelete()" title="Remover imagem">🗑️</button>
+  </div>
 
 </div><!-- #app-body -->
 
@@ -606,21 +637,25 @@
         <div class="stab-inner">
           <div class="sheet-block">
             <div class="sheet-block-title">ANOTAÇÕES LIVRES</div>
-            <div class="notes-toolbar">
-              <label class="notes-tool-btn" title="Inserir imagem do computador">🖼️<input type="file" id="sh-anotacoes-file" accept="image/*" style="display:none" onchange="noteInsertFile(this)"></label>
+            <div class="notes-toolbar" id="sh-notes-toolbar">
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteCmd('bold')" title="Negrito"><b>B</b></button>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteCmd('italic')" title="Itálico"><i>I</i></button>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteCmd('underline')" title="Sublinhado"><u>U</u></button>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteCmd('strikeThrough')" title="Tachado"><s>S</s></button>
+              <span class="notes-sep"></span>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(1)" title="Título grande">H1</button>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(2)" title="Título médio">H2</button>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(0)" title="Parágrafo normal">¶</button>
+              <span class="notes-sep"></span>
+              <label class="notes-tool-btn note-color-btn" title="Cor do texto" onmousedown="event.preventDefault()">
+                <span class="note-color-swatch" id="note-color-swatch-sh">A</span>
+                <input type="color" class="note-color-input" value="#e8e8f0" oninput="noteColor(this.value,'sh')">
+              </label>
+              <span class="notes-sep"></span>
+              <label class="notes-tool-btn" title="Inserir imagem">🖼️<input type="file" id="sh-anotacoes-file" accept="image/*" style="display:none" onchange="noteInsertFile(this)"></label>
               <button class="notes-tool-btn" onclick="notePromptURL()" title="Inserir imagem por URL">🔗</button>
             </div>
             <div id="sh-anotacoes" class="sheet-anotacoes notes-editor" contenteditable="true" data-placeholder="Pistas da sessão, observações, notas pessoais, rascunhos..."></div>
-            <div id="note-img-toolbar" class="note-img-toolbar hidden">
-              <span class="note-img-tb-label">Largura:</span>
-              <button class="note-img-tb-btn" onclick="noteImgSize(25)">25%</button>
-              <button class="note-img-tb-btn" onclick="noteImgSize(50)">50%</button>
-              <button class="note-img-tb-btn" onclick="noteImgSize(75)">75%</button>
-              <button class="note-img-tb-btn" onclick="noteImgSize(100)">100%</button>
-              <input type="number" id="note-img-w" class="note-img-tb-input" min="10" max="100" placeholder="%" title="% da largura">
-              <span class="note-img-tb-label">%</span>
-              <button class="note-img-tb-btn note-img-tb-del" onclick="noteImgDelete()" title="Remover imagem">🗑️</button>
-            </div>
           </div>
         </div>
       </div>

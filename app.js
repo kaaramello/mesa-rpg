@@ -464,8 +464,9 @@ io.on('connection', (socket) => {
     if (!room) return;
     const requester = room.players[socket.id];
     if (requester?.is_gm) {
-      const sheet = room.players[data.target_sid]?.sheet || {};
-      socket.emit('player_sheet_data', { sid: data.target_sid, sheet });
+      const target = room.players[data.target_sid];
+      const sheet = target?.sheet || {};
+      socket.emit('player_sheet_data', { sid: data.target_sid, sheet, playerName: target?.name || '' });
     }
   });
 

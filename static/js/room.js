@@ -1843,11 +1843,36 @@ function _gmTA(val, cls = 'sheet-input sheet-textarea', rows = 3) {
 }
 
 socket.on('player_sheet_data', (data) => {
-  const modal = document.getElementById('modal-gm-sheet');
+  const p = players[data.sid] || players['off_' + Object.keys(players).find(k => players[k]?.name === data.playerName)];
+  const playerName = p?.name || data.playerName || 'Jogador';
+
+  applySheet(data.sheet || {});
+
+  // Nível é uma div (não input), atualiza manualmente
+  const nivelEl = document.getElementById('sh-nivel-display');
+  if (nivelEl) {
+    const lvl = p?.level || 0;
+    const bonus = p?.bonus_level || 0;
+    nivelEl.textContent = bonus > 0 ? `${lvl} +B${bonus}` : String(lvl);
+  }
+
+  switchSheetTab('perfil', document.querySelector('.sheet-tab[data-tab="perfil"]'));
+
+  const modal = document.getElementById('modal-sheet');
+  const titleEl = document.getElementById('sheet-main-title');
+  const banner = document.getElementById('sheet-gm-banner');
+  if (titleEl) titleEl.textContent = `FICHA DE ${playerName.toUpperCase()}`;
+  if (banner) { banner.textContent = `👁 VISUALIZANDO — MODO LEITURA`; banner.style.display = 'block'; }
+  modal.classList.add('sheet-gm-view');
+  modal._gmViewSid = data.sid;
+  modal.classList.remove('hidden');
+
+  // CÓDIGO ANTIGO (mantido como fallback, não será executado)
+  if (false) {
+  const _modal = document.getElementById('modal-gm-sheet');
   const title = document.getElementById('gm-sheet-title');
   const body  = document.getElementById('gm-sheet-body');
-  const p = players[data.sid];
-  title.textContent = (p?.name || 'Jogador').toUpperCase();
+  title.textContent = playerName.toUpperCase();
   const s = data.sheet || {};
 
   // Classes
@@ -2024,9 +2049,23 @@ socket.on('player_sheet_data', (data) => {
   const editBtn = document.getElementById('gm-edit-vitals-btn');
   if (editBtn) { editBtn.onclick = () => { closeModal('modal-gm-sheet'); editPlayerVitals(data.sid); }; }
 
-  modal.classList.remove('hidden');
+  _modal.classList.remove('hidden');
+  } // fim if(false)
 });
 
+function closeSheetModal() {
+  const modal = document.getElementById('modal-sheet');
+  if (modal.classList.contains('sheet-gm-view')) {
+    modal.classList.remove('sheet-gm-view');
+    modal._gmViewSid = null;
+    const titleEl = document.getElementById('sheet-main-title');
+    const banner = document.getElementById('sheet-gm-banner');
+    if (titleEl) titleEl.textContent = 'FICHA DE PERSONAGEM';
+    if (banner) banner.style.display = 'none';
+    loadSheetFromStorage();
+  }
+  modal.classList.add('hidden');
+}
 
 let _vitalsEditTarget = null;
 

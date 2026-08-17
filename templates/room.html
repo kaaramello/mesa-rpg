@@ -411,12 +411,13 @@
 
 <!-- ===== MODAL: FICHA DE PERSONAGEM ===== -->
 <div id="modal-sheet" class="modal hidden">
-  <div class="sheet-overlay" onclick="closeModal('modal-sheet')"></div>
+  <div class="sheet-overlay" onclick="closeSheetModal()"></div>
   <div class="sheet-fullbox">
+    <div class="sheet-gm-banner" id="sheet-gm-banner" style="display:none"></div>
     <div class="sheet-header-bar">
       <div class="sheet-title-area">
         <div class="sheet-ornament">✦</div>
-        <h2 class="sheet-main-title">FICHA DE PERSONAGEM</h2>
+        <h2 class="sheet-main-title" id="sheet-main-title">FICHA DE PERSONAGEM</h2>
         <div class="sheet-ornament">✦</div>
       </div>
       <div class="sheet-classe-box">
@@ -618,7 +619,7 @@
 
     </div>
     <div class="sheet-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-sheet')">Fechar</button>
+      <button class="btn-cancel" onclick="closeSheetModal()">Fechar</button>
       <button class="btn-confirm" onclick="saveSheet()">SALVAR FICHA</button>
     </div>
   </div>

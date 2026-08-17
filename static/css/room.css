@@ -986,6 +986,24 @@ body.not-gm .gm-only { display: none !important; }
 /* Ficha oculta para o GM */
 body.is-gm .sheet-btn { display: none !important; }
 
+/* Modo leitura: GM visualizando ficha de jogador */
+.sheet-gm-view .btn-confirm { display: none !important; }
+.sheet-gm-view .sheet-tab[data-tab="espaco"] { display: none !important; }
+.sheet-gm-view .sheet-add-btn { display: none !important; }
+.sheet-gm-view .inv-del { display: none !important; }
+.sheet-gm-view .hab-del { display: none !important; }
+.sheet-gm-view input,
+.sheet-gm-view textarea,
+.sheet-gm-view select { pointer-events: none !important; cursor: default !important; }
+.sheet-gm-view input[type="checkbox"] { opacity: 0.7; }
+.sheet-gm-view .sheet-avatar-slot { pointer-events: none !important; }
+.sheet-gm-view .sheet-level-display { pointer-events: none !important; cursor: default !important; }
+.sheet-gm-view .sheet-gm-banner {
+  background: var(--accent); color: #fff; text-align: center;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  padding: 4px 0; flex-shrink: 0;
+}
+
 /* ===== PIN POPUP ===== */
 .pin-popup {
   position: fixed; z-index: 9999;

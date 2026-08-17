@@ -554,6 +554,14 @@ body { display: flex; }
   font-size: 9px; font-weight: 800; background: var(--accent); color: #fff;
   padding: 1px 6px; border-radius: 10px; letter-spacing: 0.5px; flex-shrink: 0;
 }
+.pc-offline-badge {
+  font-size: 9px; font-weight: 700; background: var(--bg-hover); color: var(--text-muted);
+  padding: 1px 5px; border-radius: 8px; margin-left: 5px; vertical-align: middle;
+}
+.player-offline { opacity: 0.45; }
+.player-offline:hover { border-color: var(--border); opacity: 0.6; }
+.nav-btn.leave-btn { color: var(--danger, #e05555); }
+.nav-btn.leave-btn:hover { background: rgba(224,85,85,0.15); color: var(--danger, #e05555); }
 
 /* Barras de vida */
 .pc-vitals { display: flex; flex-direction: column; gap: 4px; }

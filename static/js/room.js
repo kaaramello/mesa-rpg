@@ -56,10 +56,21 @@ function renderPlayers() {
   const el = document.getElementById('players-list');
   if (!el) return;
   el.innerHTML = '';
-  const count = Object.keys(players).length;
+
+  // Conta apenas online para o badge
+  const onlineCount = Object.values(players).filter(p => p.online !== false).length;
   const countEl = document.getElementById('mobile-online-count');
-  if (countEl) countEl.textContent = count;
-  for (const [sid, p] of Object.entries(players)) {
+  if (countEl) countEl.textContent = onlineCount;
+
+  // Ordena: GM primeiro, depois jogadores em ordem alfabética
+  const sorted = Object.entries(players).sort(([, a], [, b]) => {
+    if (a.is_gm && !b.is_gm) return -1;
+    if (!a.is_gm && b.is_gm) return 1;
+    return (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' });
+  });
+
+  for (const [sid, p] of sorted) {
+    const isOnline = p.online !== false;
     const color = playerColor(sid);
     const v = p.vitals || {};
     const vidaPct  = v.vida_max  ? Math.min(100, Math.round((v.vida  || 0) / v.vida_max  * 100)) : 0;
@@ -69,11 +80,12 @@ function renderPlayers() {
       ? `<img src="${v.avatar}" alt="">`
       : `<span>${(p.name || '?')[0].toUpperCase()}</span>`;
     const gmBadge = p.is_gm ? '<span class="pc-gm-badge">GM</span>' : '';
+    const offlineBadge = !isOnline ? '<span class="pc-offline-badge">offline</span>' : '';
     const charName = v.char_name ? `<div class="pc-char">${v.char_name}</div>` : '';
     const vidaMax = v.vida_max || 0;
     const sanMax  = v.sanidade_max || 0;
     const enMax   = v.energia_max || 0;
-    const canEditVitals = sid === socket.id || (isGM && !p.is_gm);
+    const canEditVitals = isOnline && (sid === socket.id || (isGM && !p.is_gm));
     const vitalsHtml = p.is_gm ? '' : `
       <div class="pc-vitals${canEditVitals ? ' pc-vitals-clickable' : ''}"${canEditVitals ? ` onclick="editPlayerVitals('${sid}')" title="Clique para editar os vitais"` : ''}>
         <div class="pc-bar-row"><span class="pc-bar-icon">❤️</span><div class="pc-bar-wrap${vidaMax ? '' : ' empty'}"><div class="pc-bar-fill vida" style="width:${vidaPct}%"></div></div><span class="pc-bar-val">${v.vida||0}/${vidaMax||'—'}</span></div>
@@ -83,23 +95,23 @@ function renderPlayers() {
     const level = p.level || 0;
     const bonusLevel = p.bonus_level || 0;
     const levelHtml = p.is_gm ? '' : `
-      <div class="pc-level" onclick="openLevelPanel('${sid}')" title="Clique para ver os ganhos deste nível">
+      <div class="pc-level" onclick="${isOnline ? `openLevelPanel('${sid}')` : ''}" title="Clique para ver os ganhos deste nível" style="${isOnline ? '' : 'cursor:default'}">
         🏆 Nível ${level}${bonusLevel > 0 ? ` <span class="pc-level-bonus">+ Bônus ${bonusLevel}</span>` : ''}
       </div>`;
-    const actionsHtml = isGM && !p.is_gm ? `
+    const actionsHtml = isGM && !p.is_gm && isOnline ? `
       <div class="pc-actions">
         <button class="pc-action-btn" onclick="requestPlayerSheet('${sid}')">📋 Ficha</button>
         <button class="pc-action-btn" onclick="editPlayerVitals('${sid}')">✏️ Vitais</button>
         <button class="pc-action-btn" onclick="openLevelPanel('${sid}')">🏆 Nível</button>
       </div>` : '';
     const card = document.createElement('div');
-    card.className = 'player-card';
+    card.className = 'player-card' + (isOnline ? '' : ' player-offline');
     card.dataset.sid = sid;
     card.innerHTML = `
       <div class="pc-header">
         <div class="pc-avatar" style="background:${color}">${avatarHtml}</div>
         <div class="pc-info">
-          <div class="pc-name">${p.name}</div>
+          <div class="pc-name">${p.name}${offlineBadge}</div>
           ${charName}
         </div>
         ${gmBadge}
@@ -806,6 +818,12 @@ function sendFile(event) {
   if (isImg && currentImgCategory !== 'none') {
     setImgCategory('none', document.querySelector('.img-cat-btn[data-cat="none"]'));
   }
+}
+
+function leaveRoom() {
+  if (!confirm('Tem certeza que quer sair da mesa? Você será removido da lista de jogadores.')) return;
+  socket.emit('leave_room');
+  setTimeout(() => { window.location.href = '/'; }, 300);
 }
 
 function copyRoomLink() {

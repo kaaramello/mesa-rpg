@@ -143,6 +143,7 @@ function getRoom(roomId) {
   if (!rooms[roomId]) {
     rooms[roomId] = {
       players: {},
+      offline: {},
       tokens: {},
       pins: {},
       messages: [],
@@ -151,6 +152,7 @@ function getRoom(roomId) {
       library: {}
     };
   }
+  if (!rooms[roomId].offline) rooms[roomId].offline = {};
   return rooms[roomId];
 }
 
@@ -178,7 +180,10 @@ function emitToMsgAudience(io, room, roomId, msg, event, payload) {
 function broadcastPlayers(roomId, room) {
   const list = {};
   for (const [sid, p] of Object.entries(room.players)) {
-    list[sid] = { name: p.name, is_gm: p.is_gm, vitals: p.vitals || {}, level: p.level || 0, bonus_level: p.bonus_level || 0 };
+    list[sid] = { name: p.name, is_gm: p.is_gm, vitals: p.vitals || {}, level: p.level || 0, bonus_level: p.bonus_level || 0, online: true };
+  }
+  for (const [token, p] of Object.entries(room.offline || {})) {
+    list['off_' + token] = { name: p.name, is_gm: p.is_gm, vitals: p.vitals || {}, level: p.level || 0, bonus_level: p.bonus_level || 0, online: false };
   }
   io.to(roomId).emit('player_list', list);
 }
@@ -203,11 +208,19 @@ io.on('connection', (socket) => {
     }
 
     socket.join(room_id);
-    room.players[socket.id] = {
-      name: player_name, is_gm: !!is_gm,
-      sid: socket.id, token: playerToken, vitals: {},
-      level: 0, bonus_level: 0
-    };
+
+    // Restaura dados de jogador offline (reconexão sem ter clicado Sair)
+    const wasOffline = room.offline[playerToken];
+    if (wasOffline) {
+      room.players[socket.id] = { ...wasOffline, sid: socket.id, online: true };
+      delete room.offline[playerToken];
+    } else {
+      room.players[socket.id] = {
+        name: player_name, is_gm: !!is_gm,
+        sid: socket.id, token: playerToken, vitals: {},
+        level: 0, bonus_level: 0, online: true
+      };
+    }
     const me = room.players[socket.id];
 
     const visibleTokens = {};
@@ -236,14 +249,29 @@ io.on('connection', (socket) => {
     saveRooms();
   });
 
+  socket.on('leave_room', () => {
+    for (const [roomId, room] of Object.entries(rooms)) {
+      if (room.players[socket.id]) {
+        const p = room.players[socket.id];
+        delete room.players[socket.id];
+        const msg = { type: 'system', text: `${p.name} saiu da sala.`, id: msgId() };
+        room.messages.push(msg);
+        io.to(roomId).emit('new_message', msg);
+        broadcastPlayers(roomId, room);
+        saveRooms();
+        break;
+      }
+    }
+    socket.disconnect();
+  });
+
   socket.on('disconnect', () => {
     for (const [roomId, room] of Object.entries(rooms)) {
       if (room.players[socket.id]) {
-        const name = room.players[socket.id].name;
+        const p = room.players[socket.id];
+        // Move para offline em vez de remover (fica visível na lista até clicar Sair)
+        room.offline[p.token] = { name: p.name, is_gm: p.is_gm, token: p.token, vitals: p.vitals || {}, level: p.level || 0, bonus_level: p.bonus_level || 0 };
         delete room.players[socket.id];
-        const msg = { type: 'system', text: `${name} saiu da sala.`, id: msgId() };
-        room.messages.push(msg);
-        io.to(roomId).emit('new_message', msg);
         broadcastPlayers(roomId, room);
         saveRooms();
         break;

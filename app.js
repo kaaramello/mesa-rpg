@@ -54,12 +54,14 @@ async function loadRooms() {
       for (const doc of docs) {
         rooms[doc._id] = {
           players: {},
+          offline: {},
           tokens: doc.tokens || {},
           pins: doc.pins || {},
           messages: doc.messages || [],
           map: doc.map || { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
           notes: doc.notes || '',
-          library: doc.library || {}
+          library: doc.library || {},
+          presets: doc.presets || {}
         };
       }
       console.log(`Salas carregadas do MongoDB: ${docs.map(d => d._id).join(', ') || '(nenhuma)'}`);
@@ -76,12 +78,14 @@ async function loadRooms() {
     for (const [id, data] of Object.entries(saved)) {
       rooms[id] = {
         players: {},
+        offline: {},
         tokens: data.tokens || {},
         pins: data.pins || {},
         messages: data.messages || [],
         map: data.map || { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
         notes: data.notes || '',
-        library: data.library || {}
+        library: data.library || {},
+        presets: data.presets || {}
       };
     }
     console.log(`Salas carregadas do arquivo: ${Object.keys(saved).join(', ') || '(nenhuma)'}`);
@@ -105,7 +109,8 @@ function saveRooms() {
               pins: room.pins,
               map: room.map,
               notes: room.notes,
-              library: room.library
+              library: room.library,
+              presets: room.presets
             }},
             { upsert: true }
           );
@@ -126,7 +131,8 @@ function saveRooms() {
           pins: room.pins,
           map: room.map,
           notes: room.notes,
-          library: room.library
+          library: room.library,
+          presets: room.presets
         };
       }
       fs.writeFileSync(SAVE_FILE, JSON.stringify(toSave, null, 2), 'utf8');
@@ -149,10 +155,12 @@ function getRoom(roomId) {
       messages: [],
       map: { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
       notes: '',
-      library: {}
+      library: {},
+      presets: {}
     };
   }
   if (!rooms[roomId].offline) rooms[roomId].offline = {};
+  if (!rooms[roomId].presets) rooms[roomId].presets = {};
   return rooms[roomId];
 }
 
@@ -238,13 +246,15 @@ io.on('connection', (socket) => {
       if (!p.hidden || me.is_gm) visiblePins[id] = p;
     }
 
+    const presetList = Object.values(room.presets).map(p => ({ id: p.id, name: p.name }));
     socket.emit('room_state', {
       tokens: visibleTokens,
       pins: visiblePins,
       messages: room.messages.slice(-200).filter(m => isWhisperVisibleTo(m, me)),
       map: room.map,
       notes: room.notes,
-      library: room.library
+      library: room.library,
+      presets: presetList
     });
 
     broadcastPlayers(room_id, room);
@@ -437,6 +447,64 @@ io.on('connection', (socket) => {
     } else {
       io.to(data.room_id).emit('pin_updated', full);
     }
+    saveRooms();
+  });
+
+  // ===================== PRESETS DE MAPA =====================
+  socket.on('save_preset', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    if (!room.players[socket.id]?.is_gm) return;
+    const id = crypto.randomBytes(4).toString('hex');
+    room.presets[id] = {
+      id,
+      name: (data.name || 'Mapa sem nome').slice(0, 60),
+      map: JSON.parse(JSON.stringify(room.map)),
+      pins: JSON.parse(JSON.stringify(room.pins)),
+      tokens: JSON.parse(JSON.stringify(room.tokens))
+    };
+    const list = Object.values(room.presets).map(p => ({ id: p.id, name: p.name }));
+    io.to(data.room_id).emit('presets_updated', { presets: list });
+    saveRooms();
+  });
+
+  socket.on('load_preset', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    if (!room.players[socket.id]?.is_gm) return;
+    const preset = room.presets[data.preset_id];
+    if (!preset) return;
+    room.map    = JSON.parse(JSON.stringify(preset.map));
+    room.pins   = JSON.parse(JSON.stringify(preset.pins));
+    room.tokens = JSON.parse(JSON.stringify(preset.tokens));
+    for (const [sid, p] of Object.entries(room.players)) {
+      const visTokens = {};
+      for (const [tid, t] of Object.entries(room.tokens)) { if (!t.hidden || p.is_gm) visTokens[tid] = t; }
+      const visPins = {};
+      for (const [pid, pin] of Object.entries(room.pins)) { if (!pin.hidden || p.is_gm) visPins[pid] = pin; }
+      io.to(sid).emit('preset_loaded', { map: room.map, tokens: visTokens, pins: visPins });
+    }
+    saveRooms();
+  });
+
+  socket.on('rename_preset', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    if (!room.players[socket.id]?.is_gm) return;
+    if (!room.presets[data.preset_id]) return;
+    room.presets[data.preset_id].name = (data.name || 'Mapa sem nome').slice(0, 60);
+    const list = Object.values(room.presets).map(p => ({ id: p.id, name: p.name }));
+    io.to(data.room_id).emit('presets_updated', { presets: list });
+    saveRooms();
+  });
+
+  socket.on('delete_preset', (data) => {
+    const room = rooms[data.room_id];
+    if (!room) return;
+    if (!room.players[socket.id]?.is_gm) return;
+    delete room.presets[data.preset_id];
+    const list = Object.values(room.presets).map(p => ({ id: p.id, name: p.name }));
+    io.to(data.room_id).emit('presets_updated', { presets: list });
     saveRooms();
   });
 

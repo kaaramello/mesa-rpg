@@ -191,6 +191,7 @@ socket.on('room_state', (data) => {
     library = data.library;
     renderLibraryTree();
   }
+  if (data.presets && isGM) renderPresetPanel(data.presets);
 });
 
 let _notesDebounce = null;
@@ -1695,6 +1696,91 @@ function setTool(t) {
 function toggleGridPanel() {
   document.getElementById('grid-panel').classList.toggle('hidden');
 }
+
+// ===================== PRESETS DE MAPA =====================
+let _mapPresets = [];
+
+function togglePresetsPanel() {
+  const p = document.getElementById('presets-panel');
+  p.classList.toggle('hidden');
+}
+
+function saveCurrentPreset() {
+  const name = prompt('Nome deste mapa:', 'Novo Mapa');
+  if (name === null) return;
+  socket.emit('save_preset', { room_id: ROOM_ID, name: name.trim() || 'Mapa sem nome' });
+}
+
+function loadPreset(id) {
+  if (!confirm('Carregar este mapa? O mapa atual será substituído.')) return;
+  socket.emit('load_preset', { room_id: ROOM_ID, preset_id: id });
+}
+
+function deletePreset(id) {
+  if (!confirm('Excluir este mapa salvo?')) return;
+  socket.emit('delete_preset', { room_id: ROOM_ID, preset_id: id });
+}
+
+function startRenamePreset(id, currentName) {
+  const item = document.querySelector(`.preset-item[data-id="${id}"]`);
+  if (!item) return;
+  const nameEl = item.querySelector('.preset-name');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'preset-name-input';
+  input.value = currentName;
+  nameEl.replaceWith(input);
+  input.focus(); input.select();
+  const save = () => {
+    const newName = input.value.trim() || currentName;
+    socket.emit('rename_preset', { room_id: ROOM_ID, preset_id: id, name: newName });
+  };
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+}
+
+function renderPresetPanel(list) {
+  _mapPresets = list || [];
+  const el = document.getElementById('presets-list');
+  if (!el) return;
+  if (!_mapPresets.length) {
+    el.innerHTML = '<div class="presets-empty">Nenhum mapa salvo ainda.</div>';
+    return;
+  }
+  el.innerHTML = _mapPresets.map(p => `
+    <div class="preset-item" data-id="${p.id}">
+      <span class="preset-name">${escHtml(p.name)}</span>
+      <div class="preset-actions">
+        <button class="preset-btn" onclick="loadPreset('${p.id}')" title="Carregar mapa">→</button>
+        <button class="preset-btn" onclick="startRenamePreset('${p.id}','${escHtml(p.name).replace(/'/g,'&#39;')}')" title="Renomear">✏</button>
+        <button class="preset-btn danger" onclick="deletePreset('${p.id}')" title="Excluir">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+socket.on('presets_updated', d => { if (isGM) renderPresetPanel(d.presets); });
+
+socket.on('preset_loaded', d => {
+  applyMapState(d.map);
+  tokens = {};
+  for (const tok of Object.values(d.tokens || {})) spawnToken(tok);
+  pins = {};
+  for (const pin of Object.values(d.pins || {})) pins[pin.id] = pin;
+  drawMap();
+  // Sincroniza controles do painel de grade
+  if (isGM) {
+    const ms = d.map;
+    const sl = document.getElementById('grid-size-slider');
+    const sv = document.getElementById('grid-size-val');
+    const go = document.getElementById('grid-opacity');
+    const gov = document.getElementById('grid-opacity-val');
+    const gv = document.getElementById('grid-visible');
+    if (sl) sl.value = ms.grid_size || 50;
+    if (sv) sv.textContent = (ms.grid_size || 50) + 'px';
+    if (go) { const op = Math.round((ms.grid_opacity ?? 0.15) * 100); go.value = op; if (gov) gov.textContent = op + '%'; }
+    if (gv) gv.checked = ms.show_grid !== false;
+  }
+});
 function updateGridSize(v) {
   document.getElementById('grid-size-val').textContent = v + 'px';
   mapState.grid_size = parseInt(v);

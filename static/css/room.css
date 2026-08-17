@@ -452,6 +452,21 @@ body { display: flex; }
 .fp-btn.danger:hover { background: var(--danger); color: #fff; }
 .floating-panel label { font-size: 11px; color: var(--text-faint); }
 
+/* Itens de preset de mapa */
+.preset-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 4px; border-bottom: 1px solid var(--border);
+}
+.preset-item:last-child { border-bottom: none; }
+.preset-name { flex: 1; font-size: 12px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-name-input { flex: 1; font-size: 12px; background: var(--bg-base); border: 1px solid var(--accent); border-radius: 4px; color: var(--text-primary); padding: 2px 6px; min-width: 0; }
+.preset-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.preset-btn { width: 26px; height: 26px; border-radius: 5px; font-size: 12px; flex: none;
+  background: var(--bg-hover); color: var(--text-muted); border: 1px solid var(--border); transition: all 0.15s; }
+.preset-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.preset-btn.danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+.presets-empty { font-size: 11px; color: var(--text-faint); padding: 4px 0; }
+
 /* Token */
 .map-token {
   position: absolute; border-radius: 50%;

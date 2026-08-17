@@ -72,6 +72,7 @@
       <input type="file" id="map-upload" accept="image/*" style="display:none" onchange="uploadMapBg(event)">
       <div class="tool-sep"></div>
       <button class="tool-btn gm-only" id="tool-pin" onclick="setTool('pin')" title="Pontos de Interesse">📍</button>
+      <button class="tool-btn gm-only" onclick="togglePresetsPanel()" title="Mapas Salvos">🗺</button>
       <span id="zoom-info" class="zoom-label">100%</span>
     </div>
     <div class="topbar-right">
@@ -225,6 +226,13 @@
   <!-- ===== VIEW: MAPA ===== -->
   <div id="view-map" class="view">
     <canvas id="map-canvas"></canvas>
+
+    <!-- Painel de mapas salvos -->
+    <div id="presets-panel" class="floating-panel hidden" style="width:270px">
+      <div class="fp-title">🗺 Mapas Salvos</div>
+      <button class="fp-btn" style="width:100%;margin-bottom:10px" onclick="saveCurrentPreset()">+ Salvar Mapa Atual</button>
+      <div id="presets-list"></div>
+    </div>
 
     <!-- Painel de grade flutuante -->
     <div id="grid-panel" class="floating-panel hidden">

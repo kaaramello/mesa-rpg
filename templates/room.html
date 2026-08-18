@@ -44,6 +44,9 @@
     <button class="nav-btn sheet-btn" onclick="openSheet()" title="Minha Ficha">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
     </button>
+    <button class="nav-btn gm-only" onclick="openTemplateManager()" title="Modelos de Ficha">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17.5h7M17.5 14v7"/></svg>
+    </button>
     <button class="nav-btn leave-btn" onclick="leaveRoom()" title="Sair da Mesa">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
     </button>
@@ -474,12 +477,8 @@
         <h2 class="sheet-main-title" id="sheet-main-title">FICHA DE PERSONAGEM</h2>
         <div class="sheet-ornament">✦</div>
       </div>
-      <div class="sheet-classe-box">
+      <div class="sheet-classe-box" id="sh-classes-container">
         <div class="sheet-section-label">CLASSE</div>
-        <label class="sheet-check"><input type="checkbox" id="sh-cls-sentitivo"> Sensitivo</label>
-        <label class="sheet-check"><input type="checkbox" id="sh-cls-possuido"> Possuído</label>
-        <label class="sheet-check"><input type="checkbox" id="sh-cls-feiticeiro"> Feiticeiro</label>
-        <label class="sheet-check"><input type="checkbox" id="sh-cls-santificado"> Santificado</label>
       </div>
     </div>
     <nav class="sheet-tabs">
@@ -524,37 +523,9 @@
               </div>
             </div>
           </div>
-          <div class="sheet-block">
+          <div class="sheet-block" id="sh-resources-container">
             <div class="sheet-block-title">RECURSOS</div>
-            <div class="sheet-recursos">
-              <div class="sheet-recurso vida">
-                <div class="sheet-recurso-label">VIDA</div>
-                <div class="sheet-recurso-icon">❤️</div>
-                <div class="sheet-recurso-fields">
-                  <input type="number" id="sh-vida" class="sheet-recurso-input" placeholder="60" min="0">
-                  <span>/</span>
-                  <input type="number" id="sh-vida-max" class="sheet-recurso-input" placeholder="60" min="0">
-                </div>
-              </div>
-              <div class="sheet-recurso mental-r">
-                <div class="sheet-recurso-label">MENTAL</div>
-                <div class="sheet-recurso-icon">🧠</div>
-                <div class="sheet-recurso-fields">
-                  <input type="number" id="sh-sanidade" class="sheet-recurso-input" placeholder="50" min="0">
-                  <span>/</span>
-                  <input type="number" id="sh-sanidade-max" class="sheet-recurso-input" placeholder="50" min="0">
-                </div>
-              </div>
-              <div class="sheet-recurso energia">
-                <div class="sheet-recurso-label">ENERGIA</div>
-                <div class="sheet-recurso-icon">⚡</div>
-                <div class="sheet-recurso-fields">
-                  <input type="number" id="sh-energia" class="sheet-recurso-input" placeholder="50" min="0">
-                  <span>/</span>
-                  <input type="number" id="sh-energia-max" class="sheet-recurso-input" placeholder="50" min="0">
-                </div>
-              </div>
-            </div>
+            <div class="sheet-recursos"></div>
           </div>
         </div>
       </div>
@@ -563,36 +534,21 @@
       <div class="stab" id="stab-status">
         <div class="stab-inner">
           <div class="stab-status-cols">
-            <div class="sheet-block">
-              <div class="sheet-block-title">ATRIBUTOS <span style="font-weight:400;color:var(--text-faint)">(máx 10)</span></div>
+            <div class="sheet-block" id="sh-attrs-container">
+              <div class="sheet-block-title">ATRIBUTOS</div>
               <div class="sheet-attr-hint">
-                <span id="sh-attr-hint-text">16 pontos para distribuir</span>
+                <span id="sh-attr-hint-text">pontos para distribuir</span>
                 <span class="sheet-points-tracker">Usados: <strong id="sh-attr-used">0</strong>/<input id="sh-attr-max" class="sheet-max-input gm-only" type="number" value="16" min="1" max="999" oninput="updateAttrPoints();updateAttrHint()"></span>
               </div>
-              <div class="sheet-attrs">
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">👊</span><div class="sheet-attr-info"><strong>FORÇA</strong></div><input type="number" id="sh-forca" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('FORÇA','sh-forca')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🏃</span><div class="sheet-attr-info"><strong>AGILIDADE</strong></div><input type="number" id="sh-agilidade" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('AGILIDADE','sh-agilidade')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🛡️</span><div class="sheet-attr-info"><strong>DEFESA</strong></div><input type="number" id="sh-defesa" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('DEFESA','sh-defesa')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🧠</span><div class="sheet-attr-info"><strong>INTELIGÊNCIA</strong></div><input type="number" id="sh-inteligencia" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('INTELIGÊNCIA','sh-inteligencia')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🧿</span><div class="sheet-attr-info"><strong>MENTAL</strong></div><input type="number" id="sh-mental" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('MENTAL','sh-mental')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">💬</span><div class="sheet-attr-info"><strong>LÁBIA</strong></div><input type="number" id="sh-labia" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('LÁBIA','sh-labia')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🌑</span><div class="sheet-attr-info"><strong>FURTIVIDADE</strong></div><input type="number" id="sh-furtividade" class="sheet-attr-input" min="0" max="10" value="0" oninput="updateAttrPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('FURTIVIDADE','sh-furtividade')">🎲</button></div>
-              </div>
+              <div class="sheet-attrs" id="sh-attrs-list"></div>
             </div>
-            <div class="sheet-block">
-              <div class="sheet-block-title">PERÍCIAS <span style="font-weight:400;color:var(--text-faint)">(máx 6)</span></div>
+            <div class="sheet-block" id="sh-pericias-container">
+              <div class="sheet-block-title">PERÍCIAS</div>
               <div class="sheet-attr-hint">
-                <span id="sh-per-hint-text">7 pontos para distribuir</span>
+                <span id="sh-per-hint-text">pontos para distribuir</span>
                 <span class="sheet-points-tracker">Usados: <strong id="sh-per-used">0</strong>/<input id="sh-per-max" class="sheet-max-input gm-only" type="number" value="7" min="1" max="999" oninput="updatePerPoints();updatePerHint()"></span>
               </div>
-              <div class="sheet-attrs">
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🔍</span><div class="sheet-attr-info"><strong>INVESTIGAÇÃO</strong></div><input type="number" id="sh-investigacao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('INVESTIGAÇÃO','sh-investigacao')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🎒</span><div class="sheet-attr-info"><strong>SOBREVIVÊNCIA</strong></div><input type="number" id="sh-sobrevivencia" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('SOBREVIVÊNCIA','sh-sobrevivencia')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🔮</span><div class="sheet-attr-info"><strong>OCULTISMO</strong></div><input type="number" id="sh-ocultismo" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('OCULTISMO','sh-ocultismo')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">✝️</span><div class="sheet-attr-info"><strong>RELIGIÃO</strong></div><input type="number" id="sh-religiao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('RELIGIÃO','sh-religiao')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">👁️</span><div class="sheet-attr-info"><strong>INTUIÇÃO</strong></div><input type="number" id="sh-intuicao" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('INTUIÇÃO','sh-intuicao')">🎲</button></div>
-                <div class="sheet-attr-row"><span class="sheet-attr-icon">🩺</span><div class="sheet-attr-info"><strong>MEDICINA</strong></div><input type="number" id="sh-medicina" class="sheet-attr-input" min="0" max="6" value="0" oninput="updatePerPoints()"><button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('MEDICINA','sh-medicina')">🎲</button></div>
-              </div>
+              <div class="sheet-attrs" id="sh-pericias-list"></div>
             </div>
           </div>
           <div class="sheet-block">
@@ -787,6 +743,103 @@
 
 <script src="/static/js/qrgen.js"></script>
 <script>window.ROOM_ID = "{{ room_id }}";</script>
-<script src="/static/js/room.js?v=20260821"></script>
+<!-- ===== MODAL: GERENCIADOR DE TEMPLATES ===== -->
+<div id="modal-templates" class="modal hidden">
+  <div class="sheet-overlay" onclick="closeModal('modal-templates')"></div>
+  <div class="modal-box tpl-modal-box">
+    <div class="tpl-modal-header">
+      <h2 class="tpl-modal-title">Modelos de Ficha</h2>
+      <button class="modal-close-btn" onclick="closeModal('modal-templates')">✕</button>
+    </div>
+    <div class="tpl-modal-body">
+      <!-- Painel esquerdo: lista de templates -->
+      <div class="tpl-list-panel">
+        <div class="tpl-list-header">
+          <span>Modelos disponíveis</span>
+          <button class="tpl-new-btn" onclick="tplNewTemplate()">+ Novo</button>
+        </div>
+        <div id="tpl-list" class="tpl-list"></div>
+      </div>
+      <!-- Painel direito: editor do template selecionado -->
+      <div class="tpl-editor-panel" id="tpl-editor-panel">
+        <div class="tpl-editor-empty" id="tpl-editor-empty">
+          <p>Selecione um modelo para editar</p>
+        </div>
+        <div class="tpl-editor-form hidden" id="tpl-editor-form">
+          <div class="tpl-editor-top">
+            <div class="tpl-field-row">
+              <label class="tpl-label">Nome do Modelo</label>
+              <input type="text" id="tpl-name-input" class="tpl-input" placeholder="Ex: D&D 5e, Chamado de Cthulhu...">
+            </div>
+            <div class="tpl-editor-actions">
+              <button class="tpl-btn tpl-btn-apply" onclick="tplApplyToRoom()" title="Usar este modelo na sala atual">Usar na Sala</button>
+              <button class="tpl-btn tpl-btn-save" onclick="tplSaveTemplate()">Salvar</button>
+              <button class="tpl-btn tpl-btn-delete" id="tpl-delete-btn" onclick="tplDeleteTemplate()">Excluir</button>
+            </div>
+          </div>
+
+          <!-- CLASSES -->
+          <div class="tpl-section">
+            <div class="tpl-section-header">
+              <span class="tpl-section-title">Classes</span>
+              <button class="tpl-add-item-btn" onclick="tplAddItem('classes')">+ Adicionar</button>
+            </div>
+            <div id="tpl-classes-list" class="tpl-item-list" data-section="classes"
+                 ondragover="tplDragOver(event)" ondrop="tplDrop(event,'classes')"></div>
+          </div>
+
+          <!-- RECURSOS -->
+          <div class="tpl-section">
+            <div class="tpl-section-header">
+              <span class="tpl-section-title">Recursos (vida, mana…)</span>
+              <button class="tpl-add-item-btn" onclick="tplAddItem('resources')">+ Adicionar</button>
+            </div>
+            <div id="tpl-resources-list" class="tpl-item-list" data-section="resources"
+                 ondragover="tplDragOver(event)" ondrop="tplDrop(event,'resources')"></div>
+          </div>
+
+          <!-- ATRIBUTOS -->
+          <div class="tpl-section">
+            <div class="tpl-section-header">
+              <span class="tpl-section-title">Atributos</span>
+              <span class="tpl-section-hint">Pontos: <input type="number" id="tpl-attr-points" class="tpl-points-input" value="16" min="1" max="999"></span>
+              <button class="tpl-add-item-btn" onclick="tplAddItem('attrs')">+ Adicionar</button>
+            </div>
+            <div id="tpl-attrs-list" class="tpl-item-list" data-section="attrs"
+                 ondragover="tplDragOver(event)" ondrop="tplDrop(event,'attrs')"></div>
+          </div>
+
+          <!-- PERÍCIAS -->
+          <div class="tpl-section">
+            <div class="tpl-section-header">
+              <span class="tpl-section-title">Perícias</span>
+              <span class="tpl-section-hint">Pontos: <input type="number" id="tpl-per-points" class="tpl-points-input" value="7" min="1" max="999"></span>
+              <button class="tpl-add-item-btn" onclick="tplAddItem('pericias')">+ Adicionar</button>
+            </div>
+            <div id="tpl-pericias-list" class="tpl-item-list" data-section="pericias"
+                 ondragover="tplDragOver(event)" ondrop="tplDrop(event,'pericias')"></div>
+          </div>
+
+          <!-- ABAS VISÍVEIS -->
+          <div class="tpl-section">
+            <div class="tpl-section-header">
+              <span class="tpl-section-title">Abas da Ficha</span>
+            </div>
+            <div class="tpl-tabs-checks" id="tpl-tabs-checks">
+              <label class="tpl-tab-check"><input type="checkbox" data-tab="perfil"> Perfil</label>
+              <label class="tpl-tab-check"><input type="checkbox" data-tab="status"> Status</label>
+              <label class="tpl-tab-check"><input type="checkbox" data-tab="inventario"> Inventário</label>
+              <label class="tpl-tab-check"><input type="checkbox" data-tab="habilidades"> Habilidades</label>
+              <label class="tpl-tab-check"><input type="checkbox" data-tab="historia"> História</label>
+              <label class="tpl-tab-check"><input type="checkbox" data-tab="anotacoes"> Anotações</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/room.js?v=20260822"></script>
 </body>
 </html>

@@ -194,6 +194,9 @@ socket.on('room_state', (data) => {
     renderLibraryTree();
   }
   if (data.presets && isGM) renderPresetPanel(data.presets);
+  if (data.all_templates) _allTemplates = data.all_templates;
+  if (data.active_template_id) _roomActiveTemplateId = data.active_template_id;
+  if (data.template) { applyTemplate(data.template); if (!_roomActiveTemplateId) _roomActiveTemplateId = data.template.id; }
 });
 
 let _notesDebounce = null;
@@ -2333,6 +2336,9 @@ socket.on('player_level_updated', (data) => {
 
 // ===================== FICHA =====================
 const SHEET_KEY = 'rpg_sheet_v2';
+let _activeTemplate = null;
+let _allTemplates = [];      // [{id, name, builtin}]
+let _roomActiveTemplateId = null;
 
 function switchSheetTab(name, btn) {
   document.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
@@ -2400,27 +2406,26 @@ function gatherSheet() {
   const s = {
     name: g('sh-name'), age: g('sh-age'), height: g('sh-height'), weight: g('sh-weight'),
     appearance: g('sh-appearance'), origin: g('sh-origin'), profissao: g('sh-profissao'),
-    forca: g('sh-forca'), agilidade: g('sh-agilidade'), inteligencia: g('sh-inteligencia'),
-    mental: g('sh-mental'), labia: g('sh-labia'), furtividade: g('sh-furtividade'), defesa: g('sh-defesa'),
-    investigacao: g('sh-investigacao'), sobrevivencia: g('sh-sobrevivencia'),
-    ocultismo: g('sh-ocultismo'), religiao: g('sh-religiao'),
-    medicina: g('sh-medicina'), intuicao: g('sh-intuicao'),
-    vida: g('sh-vida'), 'vida-max': g('sh-vida-max'),
-    sanidade: g('sh-sanidade'), 'sanidade-max': g('sh-sanidade-max'),
-    energia: g('sh-energia'), 'energia-max': g('sh-energia-max'),
     xp: g('sh-xp'),
     equipamentos: g('sh-equipamentos'), personalidade: g('sh-personalidade'),
     'nao-pode': g('sh-nao-pode'), 'mais-ama': g('sh-mais-ama'),
     'mais-odeia': g('sh-mais-odeia'), 'mais-teme': g('sh-mais-teme'),
     historia: g('sh-historia'), anotacoes: (document.getElementById('sh-anotacoes')||{}).innerHTML || '',
     'attr-max': g('sh-attr-max') || '16', 'per-max': g('sh-per-max') || '7',
+    template_id: _activeTemplate?.id || null,
   };
-  s.classes = {
-    sentitivo: document.getElementById('sh-cls-sentitivo')?.checked || false,
-    possuido: document.getElementById('sh-cls-possuido')?.checked || false,
-    feiticeiro: document.getElementById('sh-cls-feiticeiro')?.checked || false,
-    santificado: document.getElementById('sh-cls-santificado')?.checked || false,
-  };
+  const tpl = _activeTemplate;
+  s.attrs = {};
+  for (const attr of (tpl?.attrs || [])) s.attrs[attr.id] = g('sh-attr-' + attr.id);
+  s.pericias = {};
+  for (const per of (tpl?.pericias || [])) s.pericias[per.id] = g('sh-per-' + per.id);
+  s.resources = {};
+  for (const res of (tpl?.resources || [])) {
+    s.resources[res.id] = g('sh-res-' + res.id);
+    s.resources[res.id + '-max'] = g('sh-res-' + res.id + '-max');
+  }
+  s.classes = {};
+  for (const cls of (tpl?.classes || [])) s.classes[cls.id] = document.getElementById('sh-cls-' + cls.id)?.checked || false;
   s.inventory = [];
   document.querySelectorAll('.inv-item input').forEach(i => s.inventory.push(i.value));
   s.habilidades = [];
@@ -2447,14 +2452,6 @@ function applySheet(s) {
   const set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
   set('sh-name', s.name); set('sh-age', s.age); set('sh-height', s.height); set('sh-weight', s.weight);
   set('sh-appearance', s.appearance); set('sh-origin', s.origin); set('sh-profissao', s.profissao);
-  set('sh-forca', s.forca); set('sh-agilidade', s.agilidade); set('sh-inteligencia', s.inteligencia);
-  set('sh-mental', s.mental); set('sh-labia', s.labia); set('sh-furtividade', s.furtividade); set('sh-defesa', s.defesa);
-  set('sh-investigacao', s.investigacao); set('sh-sobrevivencia', s.sobrevivencia);
-  set('sh-ocultismo', s.ocultismo); set('sh-religiao', s.religiao);
-  set('sh-medicina', s.medicina); set('sh-intuicao', s.intuicao);
-  set('sh-vida', s.vida); set('sh-vida-max', s['vida-max']);
-  set('sh-sanidade', s.sanidade); set('sh-sanidade-max', s['sanidade-max']);
-  set('sh-energia', s.energia); set('sh-energia-max', s['energia-max']);
   set('sh-xp', s.xp);
   set('sh-equipamentos', s.equipamentos); set('sh-personalidade', s.personalidade);
   set('sh-nao-pode', s['nao-pode']); set('sh-mais-ama', s['mais-ama']);
@@ -2463,9 +2460,31 @@ function applySheet(s) {
   const notesEl = document.getElementById('sh-anotacoes');
   if (notesEl && s.anotacoes !== undefined) notesEl.innerHTML = s.anotacoes;
   set('sh-attr-max', s['attr-max']); set('sh-per-max', s['per-max']);
+  const tpl = _activeTemplate;
+  // attrs — new format s.attrs.id, fallback to old format s.id
+  for (const attr of (tpl?.attrs || [])) {
+    const val = s.attrs?.[attr.id] ?? s[attr.id];
+    set('sh-attr-' + attr.id, val);
+  }
+  // pericias
+  for (const per of (tpl?.pericias || [])) {
+    const val = s.pericias?.[per.id] ?? s[per.id];
+    set('sh-per-' + per.id, val);
+  }
+  // resources — new format s.resources.id, fallback to old flat keys (vida, sanidade, energia)
+  const _resLegacy = { vida: 'vida', sanidade: 'sanidade', energia: 'energia' };
+  for (const res of (tpl?.resources || [])) {
+    const v = s.resources?.[res.id] ?? s[_resLegacy[res.id] || res.id];
+    const vm = s.resources?.[res.id + '-max'] ?? s[(_resLegacy[res.id] || res.id) + '-max'] ?? s[res.id + '-max'];
+    set('sh-res-' + res.id, v);
+    set('sh-res-' + res.id + '-max', vm);
+  }
+  // classes
   if (s.classes) {
-    const cls = { sentitivo: 'sh-cls-sentitivo', possuido: 'sh-cls-possuido', feiticeiro: 'sh-cls-feiticeiro', santificado: 'sh-cls-santificado' };
-    for (const [k, id] of Object.entries(cls)) { const el = document.getElementById(id); if (el) el.checked = !!s.classes[k]; }
+    for (const cls of (tpl?.classes || [])) {
+      const el = document.getElementById('sh-cls-' + cls.id);
+      if (el) el.checked = !!s.classes[cls.id];
+    }
   }
   const invList = document.getElementById('sh-inventory-list');
   if (invList) { invList.innerHTML = ''; (s.inventory || []).forEach(item => addInventoryItem(item)); }
@@ -2483,9 +2502,9 @@ function applySheet(s) {
 }
 
 function updateAttrPoints() {
-  const attrs = ['forca','agilidade','inteligencia','mental','labia','furtividade','defesa'];
+  const ids = (_activeTemplate?.attrs || []).map(a => 'sh-attr-' + a.id);
   let used = 0;
-  for (const a of attrs) { const el = document.getElementById('sh-' + a); if (el) used += parseInt(el.value) || 0; }
+  for (const id of ids) { const el = document.getElementById(id); if (el) used += parseInt(el.value) || 0; }
   const usedEl = document.getElementById('sh-attr-used');
   if (usedEl) usedEl.textContent = used;
   updateAttrHint();
@@ -2497,9 +2516,9 @@ function updateAttrHint() {
   if (hint) hint.textContent = (max - used) + ' pontos para distribuir';
 }
 function updatePerPoints() {
-  const pers = ['investigacao','sobrevivencia','ocultismo','religiao','medicina','intuicao'];
+  const ids = (_activeTemplate?.pericias || []).map(p => 'sh-per-' + p.id);
   let used = 0;
-  for (const p of pers) { const el = document.getElementById('sh-' + p); if (el) used += parseInt(el.value) || 0; }
+  for (const id of ids) { const el = document.getElementById(id); if (el) used += parseInt(el.value) || 0; }
   const usedEl = document.getElementById('sh-per-used');
   if (usedEl) usedEl.textContent = used;
   updatePerHint();
@@ -3470,4 +3489,325 @@ function saveBattleNotes(value) {
 function loadBattleNotes() {
   const ta = document.getElementById('gm-battle-notes');
   if (ta) ta.value = localStorage.getItem(BATTLE_NOTES_KEY) || '';
+}
+
+// ===================== TEMPLATE SYSTEM =====================
+
+function applyTemplate(tpl) {
+  if (!tpl) return;
+  _activeTemplate = tpl;
+  _renderTemplateClasses(tpl);
+  _renderTemplateResources(tpl);
+  _renderTemplateAttrs(tpl);
+  _renderTemplatePericias(tpl);
+  _renderTemplateTabs(tpl);
+}
+
+function _renderTemplateClasses(tpl) {
+  const box = document.getElementById('sh-classes-container');
+  if (!box) return;
+  box.innerHTML = '<div class="sheet-section-label">CLASSE</div>';
+  for (const cls of (tpl.classes || [])) {
+    const lbl = document.createElement('label');
+    lbl.className = 'sheet-check';
+    lbl.innerHTML = `<input type="checkbox" id="sh-cls-${cls.id}"> ${cls.name}`;
+    box.appendChild(lbl);
+  }
+}
+
+function _renderTemplateResources(tpl) {
+  const box = document.querySelector('#sh-resources-container .sheet-recursos');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const res of (tpl.resources || [])) {
+    const div = document.createElement('div');
+    div.className = 'sheet-recurso';
+    div.innerHTML = `
+      <div class="sheet-recurso-label">${res.name}</div>
+      <div class="sheet-recurso-icon">${res.icon}</div>
+      <div class="sheet-recurso-fields">
+        <input type="number" id="sh-res-${res.id}" class="sheet-recurso-input" placeholder="${res.default_max || 50}" min="0">
+        <span>/</span>
+        <input type="number" id="sh-res-${res.id}-max" class="sheet-recurso-input" placeholder="${res.default_max || 50}" min="0">
+      </div>`;
+    box.appendChild(div);
+  }
+}
+
+function _renderTemplateAttrs(tpl) {
+  const list = document.getElementById('sh-attrs-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const maxVal = tpl.attrs?.[0]?.max || 10;
+  const title = document.querySelector('#sh-attrs-container .sheet-block-title');
+  if (title) title.innerHTML = `ATRIBUTOS <span style="font-weight:400;color:var(--text-faint)">(máx ${maxVal})</span>`;
+  for (const attr of (tpl.attrs || [])) {
+    const div = document.createElement('div');
+    div.className = 'sheet-attr-row';
+    div.innerHTML = `
+      <span class="sheet-attr-icon">${attr.icon}</span>
+      <div class="sheet-attr-info"><strong>${attr.name}</strong></div>
+      <input type="number" id="sh-attr-${attr.id}" class="sheet-attr-input" min="0" max="${attr.max}" value="0" oninput="updateAttrPoints()">
+      <button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('${attr.name}','sh-attr-${attr.id}')">🎲</button>`;
+    list.appendChild(div);
+  }
+  updateAttrPoints();
+}
+
+function _renderTemplatePericias(tpl) {
+  const list = document.getElementById('sh-pericias-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const maxVal = tpl.pericias?.[0]?.max || 6;
+  const title = document.querySelector('#sh-pericias-container .sheet-block-title');
+  if (title) title.innerHTML = `PERÍCIAS <span style="font-weight:400;color:var(--text-faint)">(máx ${maxVal})</span>`;
+  for (const per of (tpl.pericias || [])) {
+    const div = document.createElement('div');
+    div.className = 'sheet-attr-row';
+    div.innerHTML = `
+      <span class="sheet-attr-icon">${per.icon}</span>
+      <div class="sheet-attr-info"><strong>${per.name}</strong></div>
+      <input type="number" id="sh-per-${per.id}" class="sheet-attr-input" min="0" max="${per.max}" value="0" oninput="updatePerPoints()">
+      <button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('${per.name}','sh-per-${per.id}')">🎲</button>`;
+    list.appendChild(div);
+  }
+  updatePerPoints();
+}
+
+function _renderTemplateTabs(tpl) {
+  const tabs = tpl.tabs || {};
+  const map = ['perfil','status','inventario','habilidades','historia','anotacoes'];
+  for (const t of map) {
+    const stab = document.getElementById('stab-' + t);
+    const btn = document.querySelector(`.sheet-tab[data-tab="${t}"]`);
+    const show = tabs[t] !== false;
+    if (stab) stab.style.display = show ? '' : 'none';
+    if (btn) btn.style.display = show ? '' : 'none';
+  }
+}
+
+// Socket events for template changes
+socket.on('room_template_changed', (data) => {
+  _roomActiveTemplateId = data.template_id;
+  if (data.template) applyTemplate(data.template);
+  _tplRefreshListIfOpen();
+});
+socket.on('templates_updated', (data) => {
+  if (data.all_templates) _allTemplates = data.all_templates;
+  _tplRefreshListIfOpen();
+});
+
+// ===== Template Manager UI =====
+let _tplEditing = null; // draft template being edited
+
+function _tplRefreshListIfOpen() {
+  if (!document.getElementById('modal-templates')?.classList.contains('hidden')) {
+    tplRenderList();
+  }
+}
+
+function openTemplateManager() {
+  if (!isGM) return;
+  socket.emit('get_templates', { room_id: ROOM_ID }, (res) => {
+    if (res?.all_templates) _allTemplates = res.all_templates;
+    if (res?.active_template_id) _roomActiveTemplateId = res.active_template_id;
+    tplRenderList();
+    document.getElementById('tpl-editor-empty').style.display = 'flex';
+    document.getElementById('tpl-editor-form').classList.add('hidden');
+    _tplEditing = null;
+  });
+  document.getElementById('modal-templates').classList.remove('hidden');
+}
+
+function tplRenderList() {
+  const list = document.getElementById('tpl-list');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const t of _allTemplates) {
+    const div = document.createElement('div');
+    div.className = 'tpl-list-item' +
+      (_tplEditing?.id === t.id ? ' active' : '') +
+      (t.id === _roomActiveTemplateId ? ' active-room' : '');
+    div.innerHTML = `<span class="tpl-list-item-name">${escHtml(t.name)}</span>${t.builtin ? '<span class="tpl-builtin-badge">padrão</span>' : ''}`;
+    div.onclick = () => tplSelectTemplate(t.id);
+    list.appendChild(div);
+  }
+}
+
+function tplSelectTemplate(id) {
+  socket.emit('get_templates', { room_id: ROOM_ID }, (res) => {
+    if (res?.all_templates) _allTemplates = res.all_templates;
+    const full = res?.templates?.[id];
+    if (!full) return;
+    _tplEditing = JSON.parse(JSON.stringify(full));
+    tplRenderList();
+    tplRenderEditor(_tplEditing);
+  });
+}
+
+function tplRenderEditor(tpl) {
+  document.getElementById('tpl-editor-empty').style.display = 'none';
+  const form = document.getElementById('tpl-editor-form');
+  form.classList.remove('hidden');
+  document.getElementById('tpl-name-input').value = tpl.name || '';
+  document.getElementById('tpl-attr-points').value = tpl.attr_points || 16;
+  document.getElementById('tpl-per-points').value = tpl.per_points || 7;
+  const delBtn = document.getElementById('tpl-delete-btn');
+  if (delBtn) delBtn.disabled = !!tpl.builtin;
+  // render item lists
+  tplRenderSection('classes', tpl.classes || []);
+  tplRenderSection('resources', tpl.resources || []);
+  tplRenderSection('attrs', tpl.attrs || []);
+  tplRenderSection('pericias', tpl.pericias || []);
+  // tabs checkboxes
+  const tabChecks = document.querySelectorAll('#tpl-tabs-checks input[type=checkbox]');
+  for (const cb of tabChecks) {
+    const t = cb.getAttribute('data-tab');
+    cb.checked = tpl.tabs?.[t] !== false;
+  }
+}
+
+function tplRenderSection(section, items) {
+  const list = document.getElementById('tpl-' + section + '-list');
+  if (!list) return;
+  list.innerHTML = '';
+  for (let i = 0; i < items.length; i++) tplAddItemRow(list, section, items[i]);
+}
+
+function tplAddItemRow(list, section, data) {
+  const row = document.createElement('div');
+  row.className = 'tpl-item-row';
+  row.draggable = true;
+  row.dataset.section = section;
+  const showIcon = section !== 'classes';
+  const showMax = section === 'attrs' || section === 'pericias';
+  const showDefMax = section === 'resources';
+  row.innerHTML =
+    `<span class="tpl-item-drag">⠿</span>` +
+    (showIcon ? `<input class="tpl-item-icon-inp" type="text" value="${escHtml(data.icon||'')}" placeholder="🎲" maxlength="4">` : '') +
+    `<input class="tpl-item-name-inp" type="text" value="${escHtml(data.name||'')}" placeholder="Nome">` +
+    (showMax ? `<input class="tpl-item-max-inp" type="number" value="${data.max||10}" placeholder="máx" min="1" title="Valor máximo">` : '') +
+    (showDefMax ? `<input class="tpl-item-max-inp" type="number" value="${data.default_max||50}" placeholder="padrão" min="1" title="Valor padrão">` : '') +
+    `<button class="tpl-item-del" onclick="this.closest('.tpl-item-row').remove()">×</button>`;
+  // drag events
+  let _dragSrc = null;
+  row.addEventListener('dragstart', (e) => { _dragSrc = row; row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+  row.addEventListener('dragend', () => { row.classList.remove('dragging'); _dragSrc = null; });
+  list.appendChild(row);
+}
+
+function tplDragOver(e) {
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function tplDrop(e, section) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const dragging = document.querySelector('.tpl-item-row.dragging');
+  if (!dragging) return;
+  const list = document.getElementById('tpl-' + section + '-list');
+  if (!list) return;
+  const afterEl = Array.from(list.querySelectorAll('.tpl-item-row:not(.dragging)')).find(el => {
+    const box = el.getBoundingClientRect();
+    return e.clientY < box.top + box.height / 2;
+  });
+  list.insertBefore(dragging, afterEl || null);
+}
+
+function tplAddItem(section) {
+  const list = document.getElementById('tpl-' + section + '-list');
+  if (!list) return;
+  const defaults = { classes: { name: '' }, resources: { icon: '❤️', name: 'NOVO RECURSO', default_max: 50 }, attrs: { icon: '💪', name: 'NOVO ATRIBUTO', max: 10 }, pericias: { icon: '🎯', name: 'NOVA PERÍCIA', max: 6 } };
+  tplAddItemRow(list, section, defaults[section] || { name: '' });
+}
+
+function tplCollectSection(section) {
+  const list = document.getElementById('tpl-' + section + '-list');
+  if (!list) return [];
+  const rows = list.querySelectorAll('.tpl-item-row');
+  return Array.from(rows).map((row, i) => {
+    const nameEl = row.querySelector('.tpl-item-name-inp');
+    const iconEl = row.querySelector('.tpl-item-icon-inp');
+    const maxEl = row.querySelector('.tpl-item-max-inp');
+    const name = nameEl?.value.trim().toUpperCase() || '';
+    const icon = iconEl?.value.trim() || '';
+    const id = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'_') || ('item_' + i);
+    if (section === 'classes') return { id, name: nameEl?.value.trim() || '' };
+    if (section === 'resources') return { id, icon, name, default_max: parseInt(maxEl?.value) || 50 };
+    return { id, icon, name, max: parseInt(maxEl?.value) || 10 };
+  }).filter(r => r.name);
+}
+
+function tplSaveTemplate() {
+  if (!_tplEditing) return;
+  const name = document.getElementById('tpl-name-input')?.value.trim();
+  if (!name) { alert('Dê um nome ao modelo.'); return; }
+  const tabs = {};
+  document.querySelectorAll('#tpl-tabs-checks input[type=checkbox]').forEach(cb => {
+    tabs[cb.getAttribute('data-tab')] = cb.checked;
+  });
+  const tpl = {
+    id: _tplEditing.id,
+    name,
+    builtin: _tplEditing.builtin || false,
+    attr_points: parseInt(document.getElementById('tpl-attr-points')?.value) || 16,
+    per_points: parseInt(document.getElementById('tpl-per-points')?.value) || 7,
+    classes: tplCollectSection('classes'),
+    resources: tplCollectSection('resources'),
+    attrs: tplCollectSection('attrs'),
+    pericias: tplCollectSection('pericias'),
+    tabs,
+  };
+  socket.emit('save_template', { room_id: ROOM_ID, template: tpl }, (res) => {
+    if (res?.ok) {
+      _tplEditing = tpl;
+      if (res.all_templates) _allTemplates = res.all_templates;
+      tplRenderList();
+    } else {
+      alert(res?.error || 'Erro ao salvar.');
+    }
+  });
+}
+
+function tplApplyToRoom() {
+  if (!_tplEditing) return;
+  socket.emit('set_room_template', { room_id: ROOM_ID, template_id: _tplEditing.id }, (res) => {
+    if (res?.ok) {
+      _roomActiveTemplateId = _tplEditing.id;
+      if (res.template) applyTemplate(res.template);
+      tplRenderList();
+      closeModal('modal-templates');
+    } else {
+      alert(res?.error || 'Erro ao aplicar modelo.');
+    }
+  });
+}
+
+function tplDeleteTemplate() {
+  if (!_tplEditing || _tplEditing.builtin) return;
+  if (!confirm(`Excluir o modelo "${_tplEditing.name}"? Esta ação não pode ser desfeita.`)) return;
+  socket.emit('delete_template', { room_id: ROOM_ID, template_id: _tplEditing.id }, (res) => {
+    if (res?.ok) {
+      _tplEditing = null;
+      if (res.all_templates) _allTemplates = res.all_templates;
+      tplRenderList();
+      document.getElementById('tpl-editor-empty').style.display = 'flex';
+      document.getElementById('tpl-editor-form').classList.add('hidden');
+    } else {
+      alert(res?.error || 'Erro ao excluir.');
+    }
+  });
+}
+
+function tplNewTemplate() {
+  const id = 'custom_' + Date.now();
+  _tplEditing = {
+    id, name: 'Novo Modelo', builtin: false,
+    attr_points: 16, per_points: 7,
+    classes: [], resources: [], attrs: [], pericias: [],
+    tabs: { perfil: true, status: true, inventario: true, habilidades: true, historia: true, anotacoes: true },
+  };
+  tplRenderList();
+  tplRenderEditor(_tplEditing);
 }

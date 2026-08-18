@@ -61,7 +61,8 @@ async function loadRooms() {
           map: doc.map || { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
           notes: doc.notes || '',
           library: doc.library || {},
-          presets: doc.presets || {}
+          presets: doc.presets || {},
+          active_template_id: doc.active_template_id || 'terror-sobrenatural'
         };
       }
       console.log(`Salas carregadas do MongoDB: ${docs.map(d => d._id).join(', ') || '(nenhuma)'}`);
@@ -85,7 +86,8 @@ async function loadRooms() {
         map: data.map || { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
         notes: data.notes || '',
         library: data.library || {},
-        presets: data.presets || {}
+        presets: data.presets || {},
+        active_template_id: data.active_template_id || 'terror-sobrenatural'
       };
     }
     console.log(`Salas carregadas do arquivo: ${Object.keys(saved).join(', ') || '(nenhuma)'}`);
@@ -111,7 +113,8 @@ async function _flushSave() {
             map: room.map,
             notes: room.notes,
             library: room.library,
-            presets: room.presets
+            presets: room.presets,
+            active_template_id: room.active_template_id || 'terror-sobrenatural'
           }},
           { upsert: true }
         );
@@ -155,25 +158,128 @@ async function _shutdown(signal) {
 process.on('SIGTERM', () => _shutdown('SIGTERM'));
 process.on('SIGINT',  () => _shutdown('SIGINT'));
 
+// ===================== TEMPLATES DE FICHA =====================
+const TEMPLATES_FILE = path.join(DATA_DIR, 'templates.json');
+
+const BUILTIN_TEMPLATES = {
+  'terror-sobrenatural': {
+    id: 'terror-sobrenatural', name: 'Terror Sobrenatural', builtin: true,
+    classes: [
+      { id: 'sentitivo', name: 'Sensitivo' }, { id: 'possuido', name: 'Possuído' },
+      { id: 'feiticeiro', name: 'Feiticeiro' }, { id: 'santificado', name: 'Santificado' }
+    ],
+    attrs: [
+      { id: 'forca', icon: '👊', name: 'FORÇA', max: 10 },
+      { id: 'agilidade', icon: '🏃', name: 'AGILIDADE', max: 10 },
+      { id: 'defesa', icon: '🛡️', name: 'DEFESA', max: 10 },
+      { id: 'inteligencia', icon: '🧠', name: 'INTELIGÊNCIA', max: 10 },
+      { id: 'mental', icon: '🧿', name: 'MENTAL', max: 10 },
+      { id: 'labia', icon: '💬', name: 'LÁBIA', max: 10 },
+      { id: 'furtividade', icon: '🌑', name: 'FURTIVIDADE', max: 10 }
+    ],
+    pericias: [
+      { id: 'investigacao', icon: '🔍', name: 'INVESTIGAÇÃO', max: 6 },
+      { id: 'sobrevivencia', icon: '🎒', name: 'SOBREVIVÊNCIA', max: 6 },
+      { id: 'ocultismo', icon: '🔮', name: 'OCULTISMO', max: 6 },
+      { id: 'religiao', icon: '✝️', name: 'RELIGIÃO', max: 6 },
+      { id: 'intuicao', icon: '👁️', name: 'INTUIÇÃO', max: 6 },
+      { id: 'medicina', icon: '🩺', name: 'MEDICINA', max: 6 }
+    ],
+    resources: [
+      { id: 'vida', icon: '❤️', name: 'VIDA', default_max: 60 },
+      { id: 'sanidade', icon: '🧠', name: 'SANIDADE', default_max: 50 },
+      { id: 'energia', icon: '⚡', name: 'ENERGIA', default_max: 50 }
+    ],
+    tabs: { perfil: true, status: true, inventario: true, habilidades: true, historia: true, anotacoes: true }
+  },
+  'generico': {
+    id: 'generico', name: 'Genérico (RPG Clássico)', builtin: true,
+    classes: [
+      { id: 'guerreiro', name: 'Guerreiro' }, { id: 'mago', name: 'Mago' },
+      { id: 'ladino', name: 'Ladino' }, { id: 'clerigo', name: 'Clérigo' }
+    ],
+    attrs: [
+      { id: 'forca', icon: '💪', name: 'FORÇA', max: 20 },
+      { id: 'destreza', icon: '🏹', name: 'DESTREZA', max: 20 },
+      { id: 'constituicao', icon: '🛡️', name: 'CONSTITUIÇÃO', max: 20 },
+      { id: 'inteligencia', icon: '📚', name: 'INTELIGÊNCIA', max: 20 },
+      { id: 'sabedoria', icon: '🔮', name: 'SABEDORIA', max: 20 },
+      { id: 'carisma', icon: '💬', name: 'CARISMA', max: 20 }
+    ],
+    pericias: [
+      { id: 'atletismo', icon: '🏃', name: 'ATLETISMO', max: 10 },
+      { id: 'furtividade', icon: '🌑', name: 'FURTIVIDADE', max: 10 },
+      { id: 'percepcao', icon: '👁️', name: 'PERCEPÇÃO', max: 10 },
+      { id: 'persuasao', icon: '🗣️', name: 'PERSUASÃO', max: 10 },
+      { id: 'arcana', icon: '✨', name: 'ARCANA', max: 10 },
+      { id: 'medicina', icon: '🩺', name: 'MEDICINA', max: 10 }
+    ],
+    resources: [
+      { id: 'vida', icon: '❤️', name: 'PONTOS DE VIDA', default_max: 100 },
+      { id: 'mana', icon: '💧', name: 'MANA', default_max: 50 }
+    ],
+    tabs: { perfil: true, status: true, inventario: true, habilidades: true, historia: true, anotacoes: true }
+  }
+};
+
+let globalTemplates = JSON.parse(JSON.stringify(BUILTIN_TEMPLATES));
+
+async function loadTemplates() {
+  if (_mongo) {
+    try {
+      const doc = await _mongo.findOne({ _id: '__templates__' });
+      if (doc && doc.templates) {
+        for (const [id, tpl] of Object.entries(doc.templates)) {
+          if (!tpl.builtin) globalTemplates[id] = tpl;
+        }
+      }
+    } catch(e) { console.error('Erro ao carregar templates:', e.message); }
+    return;
+  }
+  try {
+    if (fs.existsSync(TEMPLATES_FILE)) {
+      const saved = JSON.parse(fs.readFileSync(TEMPLATES_FILE, 'utf8'));
+      for (const [id, tpl] of Object.entries(saved)) {
+        if (!tpl.builtin) globalTemplates[id] = tpl;
+      }
+    }
+  } catch(e) { console.error('Erro ao carregar templates:', e.message); }
+}
+
+let _tplSaveTimer = null;
+function saveTemplates() {
+  clearTimeout(_tplSaveTimer);
+  _tplSaveTimer = setTimeout(async () => {
+    const toSave = {};
+    for (const [id, tpl] of Object.entries(globalTemplates)) {
+      if (!tpl.builtin) toSave[id] = tpl;
+    }
+    if (_mongo) {
+      try { await _mongo.updateOne({ _id: '__templates__' }, { $set: { templates: toSave } }, { upsert: true }); } catch(e) { console.error(e.message); }
+      return;
+    }
+    try {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(toSave, null, 2), 'utf8');
+    } catch(e) { console.error(e.message); }
+  }, 1000);
+}
+
 // ===================== ESTADO =====================
 const rooms = {};
 
 function getRoom(roomId) {
   if (!rooms[roomId]) {
     rooms[roomId] = {
-      players: {},
-      offline: {},
-      tokens: {},
-      pins: {},
-      messages: [],
+      players: {}, offline: {}, tokens: {}, pins: {}, messages: [],
       map: { background: null, grid_size: 50, show_grid: true, width: 3000, height: 2000 },
-      notes: '',
-      library: {},
-      presets: {}
+      notes: '', library: {}, presets: {},
+      active_template_id: 'terror-sobrenatural'
     };
   }
   if (!rooms[roomId].offline) rooms[roomId].offline = {};
   if (!rooms[roomId].presets) rooms[roomId].presets = {};
+  if (!rooms[roomId].active_template_id) rooms[roomId].active_template_id = 'terror-sobrenatural';
   return rooms[roomId];
 }
 
@@ -260,6 +366,7 @@ io.on('connection', (socket) => {
     }
 
     const presetList = Object.values(room.presets).map(p => ({ id: p.id, name: p.name }));
+    const activeTemplate = globalTemplates[room.active_template_id] || globalTemplates['terror-sobrenatural'];
     socket.emit('room_state', {
       tokens: visibleTokens,
       pins: visiblePins,
@@ -267,7 +374,10 @@ io.on('connection', (socket) => {
       map: room.map,
       notes: room.notes,
       library: room.library,
-      presets: presetList
+      presets: presetList,
+      template: activeTemplate,
+      active_template_id: room.active_template_id || 'terror-sobrenatural',
+      all_templates: Object.values(globalTemplates).map(t => ({ id: t.id, name: t.name, builtin: !!t.builtin }))
     });
 
     broadcastPlayers(room_id, room);
@@ -589,6 +699,54 @@ io.on('connection', (socket) => {
     return result;
   }
 
+  // ---- Templates de ficha ----
+  const _tplList = () => Object.values(globalTemplates).map(t => ({ id: t.id, name: t.name, builtin: !!t.builtin }));
+
+  socket.on('get_templates', (data, ack) => {
+    const room = rooms[data.room_id]; if (!room) return;
+    if (typeof ack === 'function') ack({
+      all_templates: _tplList(),
+      templates: globalTemplates,
+      active_template_id: room.active_template_id,
+    });
+  });
+
+  socket.on('save_template', (data, ack) => {
+    const room = rooms[data.room_id]; if (!room) return;
+    const player = room.players[socket.id]; if (!player?.is_gm) { if (typeof ack === 'function') ack({ error: 'Sem permissão' }); return; }
+    const tpl = data.template;
+    if (!tpl || !tpl.id || tpl.builtin) { if (typeof ack === 'function') ack({ error: 'Template inválido' }); return; }
+    globalTemplates[tpl.id] = { ...tpl, builtin: false };
+    saveTemplates();
+    const list = _tplList();
+    io.to(data.room_id).emit('templates_updated', { all_templates: list });
+    if (typeof ack === 'function') ack({ ok: true, all_templates: list });
+  });
+
+  socket.on('delete_template', (data, ack) => {
+    const room = rooms[data.room_id]; if (!room) return;
+    const player = room.players[socket.id]; if (!player?.is_gm) { if (typeof ack === 'function') ack({ error: 'Sem permissão' }); return; }
+    const tpl = globalTemplates[data.template_id];
+    if (!tpl || tpl.builtin) { if (typeof ack === 'function') ack({ error: 'Não é possível excluir este template' }); return; }
+    delete globalTemplates[data.template_id];
+    if (room.active_template_id === data.template_id) room.active_template_id = 'terror-sobrenatural';
+    saveTemplates(); saveRooms();
+    const list = _tplList();
+    io.to(data.room_id).emit('templates_updated', { all_templates: list });
+    if (typeof ack === 'function') ack({ ok: true, all_templates: list });
+  });
+
+  socket.on('set_room_template', (data, ack) => {
+    const room = rooms[data.room_id]; if (!room) return;
+    const player = room.players[socket.id]; if (!player?.is_gm) { if (typeof ack === 'function') ack({ error: 'Sem permissão' }); return; }
+    const tpl = globalTemplates[data.template_id];
+    if (!tpl) { if (typeof ack === 'function') ack({ error: 'Template não encontrado' }); return; }
+    room.active_template_id = data.template_id;
+    saveRooms();
+    io.to(data.room_id).emit('room_template_changed', { template_id: data.template_id, template: tpl });
+    if (typeof ack === 'function') ack({ ok: true, template: tpl });
+  });
+
   socket.on('library_create', (data) => {
     const room = rooms[data.room_id];
     if (!room) return;
@@ -737,9 +895,9 @@ function startKeepAlive(url) {
 // Roda direto se não for importado pelo Electron
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
-  connectMongo().then(() => loadRooms()).then(() => createServer(PORT)).then(() => {
+  connectMongo().then(() => loadRooms()).then(() => loadTemplates()).then(() => createServer(PORT)).then(() => {
     if (process.env.RENDER_EXTERNAL_URL) startKeepAlive(process.env.RENDER_EXTERNAL_URL);
   });
 }
 
-module.exports = { createServer, connectMongo, loadRooms };
+module.exports = { createServer, connectMongo, loadRooms, loadTemplates };

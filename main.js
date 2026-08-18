@@ -70,6 +70,10 @@ async function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(createWindow).catch((err) => {
+  const { dialog } = require('electron');
+  dialog.showErrorBox('Erro ao iniciar MesaRPG', String(err));
+  app.quit();
+});
 app.on('window-all-closed', () => app.quit());
 app.on('activate', () => { if (!mainWindow) createWindow(); });

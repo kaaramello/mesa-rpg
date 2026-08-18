@@ -4,7 +4,8 @@ const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { MongoClient } = require('mongodb');
+// MongoClient is required lazily in connectMongo() so the Electron build
+// (which doesn't have mongodb installed) can still start without MONGODB_URI.
 
 const app = express();
 const server = http.createServer(app);
@@ -38,6 +39,7 @@ async function connectMongo() {
   const uri = process.env.MONGODB_URI;
   if (!uri) return;
   try {
+    const { MongoClient } = require('mongodb');
     const client = new MongoClient(uri);
     await client.connect();
     _mongo = client.db('mesa_rpg').collection('rooms');
@@ -876,7 +878,8 @@ io.on('connection', (socket) => {
 });
 
 function createServer(port) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    server.on('error', reject);
     server.listen(port, () => {
       console.log(`Mesa RPG Digital rodando na porta ${port}`);
       resolve();

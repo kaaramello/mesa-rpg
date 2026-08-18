@@ -2551,6 +2551,28 @@ function noteColor(color, swatchId) {
   if (dot) dot.style.color = color;
 }
 
+function noteAlign(dir) {
+  const cmds = { left: 'justifyLeft', center: 'justifyCenter', right: 'justifyRight' };
+  document.execCommand(cmds[dir], false, null);
+}
+
+function noteFontSize(delta) {
+  const pxMap = [8, 10, 13, 16, 18, 24, 32];
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const node = sel.getRangeAt(0).commonAncestorContainer;
+  const elem = node.nodeType === 3 ? node.parentElement : node;
+  const currentPx = parseInt(window.getComputedStyle(elem).fontSize) || 16;
+  let idx = 3;
+  let minDiff = Infinity;
+  for (let i = 0; i < pxMap.length; i++) {
+    const diff = Math.abs(pxMap[i] - currentPx);
+    if (diff < minDiff) { minDiff = diff; idx = i; }
+  }
+  idx = Math.max(0, Math.min(6, idx + delta));
+  document.execCommand('fontSize', false, String(idx + 1));
+}
+
 function noteImgAlign(align) {
   if (!_selectedNoteImg) return;
   const img = _selectedNoteImg;

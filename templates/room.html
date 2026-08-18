@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/static/img/icon-192.png">
 <title>Mesa RPG Digital</title>
 <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-<link rel="stylesheet" href="/static/css/room.css?v=20260817">
+<link rel="stylesheet" href="/static/css/room.css?v=20260818">
 </head>
 <body>
 
@@ -222,6 +222,13 @@
             <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(1)" title="Título grande">H1</button>
             <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(2)" title="Título médio">H2</button>
             <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(0)" title="Parágrafo normal">¶</button>
+            <span class="notes-sep"></span>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteFontSize(-1)" title="Diminuir fonte">A<sup>-</sup></button>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteFontSize(1)" title="Aumentar fonte">A<sup>+</sup></button>
+            <span class="notes-sep"></span>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteAlign('left')" title="Alinhar à esquerda"><svg width="14" height="12" viewBox="0 0 14 12" fill="currentColor"><rect x="0" y="0" width="14" height="2"/><rect x="0" y="5" width="10" height="2"/><rect x="0" y="10" width="12" height="2"/></svg></button>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteAlign('center')" title="Centralizar"><svg width="14" height="12" viewBox="0 0 14 12" fill="currentColor"><rect x="0" y="0" width="14" height="2"/><rect x="2" y="5" width="10" height="2"/><rect x="1" y="10" width="12" height="2"/></svg></button>
+            <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteAlign('right')" title="Alinhar à direita"><svg width="14" height="12" viewBox="0 0 14 12" fill="currentColor"><rect x="0" y="0" width="14" height="2"/><rect x="4" y="5" width="10" height="2"/><rect x="2" y="10" width="12" height="2"/></svg></button>
             <span class="notes-sep"></span>
             <label class="notes-tool-btn note-color-btn" title="Cor do texto" onmousedown="event.preventDefault()">
               <span class="note-color-swatch" id="note-color-swatch-lib">A</span>
@@ -647,6 +654,13 @@
               <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(2)" title="Título médio">H2</button>
               <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteHeading(0)" title="Parágrafo normal">¶</button>
               <span class="notes-sep"></span>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteFontSize(-1)" title="Diminuir fonte">A<sup>-</sup></button>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteFontSize(1)" title="Aumentar fonte">A<sup>+</sup></button>
+              <span class="notes-sep"></span>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteAlign('left')" title="Alinhar à esquerda"><svg width="14" height="12" viewBox="0 0 14 12" fill="currentColor"><rect x="0" y="0" width="14" height="2"/><rect x="0" y="5" width="10" height="2"/><rect x="0" y="10" width="12" height="2"/></svg></button>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteAlign('center')" title="Centralizar"><svg width="14" height="12" viewBox="0 0 14 12" fill="currentColor"><rect x="0" y="0" width="14" height="2"/><rect x="2" y="5" width="10" height="2"/><rect x="1" y="10" width="12" height="2"/></svg></button>
+              <button class="notes-tool-btn fmt-btn" onmousedown="event.preventDefault()" onclick="noteAlign('right')" title="Alinhar à direita"><svg width="14" height="12" viewBox="0 0 14 12" fill="currentColor"><rect x="0" y="0" width="14" height="2"/><rect x="4" y="5" width="10" height="2"/><rect x="2" y="10" width="12" height="2"/></svg></button>
+              <span class="notes-sep"></span>
               <label class="notes-tool-btn note-color-btn" title="Cor do texto" onmousedown="event.preventDefault()">
                 <span class="note-color-swatch" id="note-color-swatch-sh">A</span>
                 <input type="color" class="note-color-input" value="#e8e8f0" oninput="noteColor(this.value,'sh')">
@@ -765,6 +779,6 @@
 
 <script src="/static/js/qrgen.js"></script>
 <script>window.ROOM_ID = "{{ room_id }}";</script>
-<script src="/static/js/room.js?v=20260817"></script>
+<script src="/static/js/room.js?v=20260818"></script>
 </body>
 </html>

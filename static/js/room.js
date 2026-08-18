@@ -1442,6 +1442,11 @@ function onMapTouchMove(e) {
     const newDist = _touchDist(t1, t2);
     const midX = (t1.clientX + t2.clientX) / 2;
     const midY = (t1.clientY + t2.clientY) / 2;
+    if (_touchPinchDist <= 0) {
+      _touchPinchDist = newDist; _touchPinchMidX = midX; _touchPinchMidY = midY;
+      isPanning = false; draggingToken = null;
+      drawMap(); return;
+    }
     const rect = mapCanvas.getBoundingClientRect();
     const mx = midX - rect.left, my = midY - rect.top;
     if (_touchPinchDist > 0) {

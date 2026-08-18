@@ -426,7 +426,8 @@ body { display: flex; }
   position: relative; background: #0a0a12;
   overflow: hidden; cursor: crosshair;
 }
-#map-canvas { position: absolute; top: 0; left: 0; }
+#map-canvas { position: absolute; top: 0; left: 0; touch-action: none; }
+#view-map { touch-action: none; }
 
 /* Painel flutuante */
 .floating-panel {
@@ -1235,9 +1236,6 @@ body.is-gm .sheet-btn { display: none !important; }
   .tool-btn { min-width: 40px; height: 40px; font-size: 16px; flex-shrink: 0; }
   .tool-sep { flex-shrink: 0; }
   .zoom-label { flex-shrink: 0; font-size: 11px; }
-
-  /* Canvas: bloqueia scroll nativo para touch do mapa funcionar */
-  #map-canvas { touch-action: none; }
 
   /* Painel de grade: vira bottom sheet no mobile */
   .floating-panel {

@@ -2340,7 +2340,7 @@ function saveSheet() {
   const sheet = gatherSheet();
   localStorage.setItem(SHEET_KEY, JSON.stringify(sheet));
   socket.emit('share_sheet', { room_id: ROOM_ID, sheet });
-  closeModal('modal-sheet');
+  closeSheetModal();
 }
 
 function gatherSheet() {
@@ -3065,6 +3065,24 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSheetFromStorage();
   initNoteEditor('sh-anotacoes');
   initNoteEditor('lib-page-content');
+
+  // Auto-save anotações da ficha no localStorage a cada mudança
+  let _noteAutoSave = null;
+  const notesEl = document.getElementById('sh-anotacoes');
+  if (notesEl) {
+    notesEl.addEventListener('input', () => {
+      clearTimeout(_noteAutoSave);
+      _noteAutoSave = setTimeout(() => {
+        const raw = localStorage.getItem(SHEET_KEY);
+        if (!raw) return;
+        try {
+          const sheet = JSON.parse(raw);
+          sheet.anotacoes = notesEl.innerHTML;
+          localStorage.setItem(SHEET_KEY, JSON.stringify(sheet));
+        } catch(e) {}
+      }, 1000);
+    });
+  }
   updateAttrPoints(); updatePerPoints();
   addInventoryItem('');
   if (isGM) {

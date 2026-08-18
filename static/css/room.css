@@ -116,6 +116,31 @@ body { display: flex; }
 .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .tool-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
 .zoom-label { font-size: 11px; color: var(--text-muted); min-width: 40px; }
+.zoom-step-btn { font-size: 16px; font-weight: bold; min-width: 32px; }
+
+/* Botão flutuante de zoom no mapa — visível só no mobile */
+#map-zoom-float {
+  display: none;
+  position: fixed;
+  right: 14px;
+  bottom: 90px;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 60;
+}
+#map-zoom-float.hidden { display: none !important; }
+.map-zoom-float-btn {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 26px; font-weight: bold; line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+}
+.map-zoom-float-btn:active { background: var(--accent); color: #fff; }
 .measure-badge { font-size: 11px; color: var(--warn); background: rgba(255,152,0,0.1); padding: 2px 8px; border-radius: 12px; }
 
 .copy-btn {
@@ -1125,6 +1150,7 @@ body.is-gm .sheet-btn { display: none !important; }
 /* ===== RESPONSIVE: MOBILE (≤ 768px) ===== */
 @media (max-width: 768px) {
   :root { --nav-w: 0px; --rp-w: 280px; }
+  #map-zoom-float { display: flex; }
 
   body { flex-direction: column; overflow: hidden; }
 

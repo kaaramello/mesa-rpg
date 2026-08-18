@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/static/img/icon-192.png">
 <title>Mesa RPG Digital</title>
 <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-<link rel="stylesheet" href="/static/css/room.css?v=20260820">
+<link rel="stylesheet" href="/static/css/room.css?v=20260821">
 </head>
 <body>
 
@@ -308,6 +308,12 @@
     <button class="note-img-tb-btn note-align-btn" data-align="center" onmousedown="event.preventDefault()" onclick="noteImgAlign('center')" title="Centro">■</button>
     <button class="note-img-tb-btn note-align-btn" data-align="right" onmousedown="event.preventDefault()" onclick="noteImgAlign('right')" title="Direita">▶</button>
     <button class="note-img-tb-btn note-img-tb-del" onmousedown="event.preventDefault()" onclick="noteImgDelete()" title="Remover imagem">🗑️</button>
+  </div>
+
+  <!-- Controle de zoom flutuante para mobile (aparece só no mapa) -->
+  <div id="map-zoom-float" class="hidden">
+    <button class="map-zoom-float-btn" onclick="zoomMapStep(1)" title="Zoom +">+</button>
+    <button class="map-zoom-float-btn" onclick="zoomMapStep(-1)" title="Zoom −">−</button>
   </div>
 
 </div><!-- #app-body -->
@@ -781,6 +787,6 @@
 
 <script src="/static/js/qrgen.js"></script>
 <script>window.ROOM_ID = "{{ room_id }}";</script>
-<script src="/static/js/room.js?v=20260820"></script>
+<script src="/static/js/room.js?v=20260821"></script>
 </body>
 </html>

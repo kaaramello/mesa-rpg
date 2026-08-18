@@ -167,6 +167,8 @@ function switchView(name) {
   if (btn) btn.classList.add('active');
   const mapToolbar = document.getElementById('map-toolbar');
   if (mapToolbar) mapToolbar.style.display = name === 'map' ? 'flex' : 'none';
+  const zoomFloat = document.getElementById('map-zoom-float');
+  if (zoomFloat) zoomFloat.classList.toggle('hidden', name !== 'map');
   if (name === 'map') initMap();
 }
 
@@ -1012,9 +1014,10 @@ function initMap() {
   mapCanvas.addEventListener('mouseup', onMapMouseUp);
   mapCanvas.addEventListener('wheel', onMapWheel, { passive: false });
   mapCanvas.addEventListener('contextmenu', onMapContextMenu);
-  mapCanvas.addEventListener('touchstart', onMapTouchStart, { passive: false });
-  mapCanvas.addEventListener('touchmove', onMapTouchMove, { passive: false });
-  mapCanvas.addEventListener('touchend', onMapTouchEnd, { passive: false });
+  mapCanvas.addEventListener('pointerdown', onMapPointerDown);
+  mapCanvas.addEventListener('pointermove', onMapPointerMove);
+  mapCanvas.addEventListener('pointerup', onMapPointerUp);
+  mapCanvas.addEventListener('pointercancel', onMapPointerUp);
   document.addEventListener('click', hideContextMenu);
   document.getElementById('pin-label-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); confirmAddPin(); }
@@ -1443,49 +1446,52 @@ function hideContextMenu() {
   if (pmenu) pmenu.classList.add('hidden');
 }
 
-function _touchDist(t1, t2) {
-  const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
-  return Math.sqrt(dx * dx + dy * dy);
-}
+// ---- Pointer Events (touch + mouse unificado) ----
+const _activePointers = new Map(); // pointerId -> {x, y}
 
-function onMapTouchStart(e) {
+function onMapPointerDown(e) {
+  // Mouse é tratado pelos handlers de mouse existentes
+  if (e.pointerType === 'mouse') return;
   e.preventDefault();
+  mapCanvas.setPointerCapture(e.pointerId);
+  _activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   hideContextMenu();
-  if (e.touches.length === 2) {
-    const t1 = e.touches[0], t2 = e.touches[1];
-    _touchPinchDist = _touchDist(t1, t2);
-    _touchPinchMidX = (t1.clientX + t2.clientX) / 2;
-    _touchPinchMidY = (t1.clientY + t2.clientY) / 2;
+
+  if (_activePointers.size === 2) {
+    // Início do pinch
     isPanning = false; draggingToken = null;
+    const pts = [..._activePointers.values()];
+    _touchPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    _touchPinchMidX = (pts[0].x + pts[1].x) / 2;
+    _touchPinchMidY = (pts[0].y + pts[1].y) / 2;
     return;
   }
-  if (e.touches.length === 1) {
-    const t = e.touches[0];
+
+  if (_activePointers.size === 1) {
     const rect = mapCanvas.getBoundingClientRect();
-    const mp = screenToMap(t.clientX - rect.left, t.clientY - rect.top);
+    const mp = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
     const tok = getTokenAt(mp.x, mp.y);
     if (tok) {
       if (!selectedTokenIds.has(tok.id)) { selectedTokenIds.clear(); selectedTokenIds.add(tok.id); }
       draggingToken = tok; dragOffX = mp.x - tok.x; dragOffY = mp.y - tok.y;
       drawMap();
     } else {
-      isPanning = true; panStart = { x: t.clientX - mapOffset.x, y: t.clientY - mapOffset.y };
+      isPanning = true;
+      panStart = { x: e.clientX - mapOffset.x, y: e.clientY - mapOffset.y };
     }
   }
 }
 
-function onMapTouchMove(e) {
-  e.preventDefault();
-  if (e.touches.length === 2) {
-    const t1 = e.touches[0], t2 = e.touches[1];
-    const newDist = _touchDist(t1, t2);
-    const midX = (t1.clientX + t2.clientX) / 2;
-    const midY = (t1.clientY + t2.clientY) / 2;
-    if (_touchPinchDist <= 0) {
-      _touchPinchDist = newDist; _touchPinchMidX = midX; _touchPinchMidY = midY;
-      isPanning = false; draggingToken = null;
-      drawMap(); return;
-    }
+function onMapPointerMove(e) {
+  if (e.pointerType === 'mouse') return;
+  if (!_activePointers.has(e.pointerId)) return;
+  _activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (_activePointers.size >= 2) {
+    const pts = [..._activePointers.values()];
+    const newDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    const midX = (pts[0].x + pts[1].x) / 2;
+    const midY = (pts[0].y + pts[1].y) / 2;
     const rect = mapCanvas.getBoundingClientRect();
     const mx = midX - rect.left, my = midY - rect.top;
     if (_touchPinchDist > 0) {
@@ -1497,22 +1503,22 @@ function onMapTouchMove(e) {
       const zl = document.getElementById('zoom-info');
       if (zl) zl.textContent = Math.round(mapZoom * 100) + '%';
     }
-    // pan with mid-point delta
     mapOffset.x += midX - _touchPinchMidX;
     mapOffset.y += midY - _touchPinchMidY;
     _touchPinchDist = newDist;
     _touchPinchMidX = midX; _touchPinchMidY = midY;
     drawMap(); return;
   }
-  if (e.touches.length === 1) {
-    const t = e.touches[0];
+
+  if (_activePointers.size === 1) {
     if (isPanning) {
-      mapOffset.x = t.clientX - panStart.x; mapOffset.y = t.clientY - panStart.y;
+      mapOffset.x = e.clientX - panStart.x;
+      mapOffset.y = e.clientY - panStart.y;
       drawMap(); return;
     }
     if (draggingToken) {
       const rect = mapCanvas.getBoundingClientRect();
-      const mp = screenToMap(t.clientX - rect.left, t.clientY - rect.top);
+      const mp = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = snapToGridPos(mp.x - dragOffX, mp.y - dragOffY);
       const dx = snapped.x - draggingToken.x, dy = snapped.y - draggingToken.y;
       if (dx !== 0 || dy !== 0) {
@@ -1526,10 +1532,12 @@ function onMapTouchMove(e) {
   }
 }
 
-function onMapTouchEnd(e) {
-  e.preventDefault();
-  if (e.touches.length < 2) _touchPinchDist = 0;
-  if (e.touches.length === 0) {
+function onMapPointerUp(e) {
+  if (e.pointerType === 'mouse') return;
+  _activePointers.delete(e.pointerId);
+  if (_activePointers.size < 2) _touchPinchDist = 0;
+
+  if (_activePointers.size === 0) {
     if (draggingToken) {
       for (const id of selectedTokenIds) {
         if (tokens[id]) socket.emit('token_move', { room_id: ROOM_ID, token_id: id, x: tokens[id].x, y: tokens[id].y });

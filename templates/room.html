@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/static/img/icon-192.png">
 <title>Mesa RPG Digital</title>
 <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-<link rel="stylesheet" href="/static/css/room.css?v=20260819">
+<link rel="stylesheet" href="/static/css/room.css?v=20260820">
 </head>
 <body>
 
@@ -73,7 +73,9 @@
       <div class="tool-sep"></div>
       <button class="tool-btn gm-only" id="tool-pin" onclick="setTool('pin')" title="Pontos de Interesse">📍</button>
       <button class="tool-btn gm-only" onclick="togglePresetsPanel()" title="Mapas Salvos">🗺</button>
+      <button class="tool-btn zoom-step-btn" onmousedown="event.preventDefault()" onclick="zoomMapStep(-1)" title="Diminuir zoom">−</button>
       <span id="zoom-info" class="zoom-label">100%</span>
+      <button class="tool-btn zoom-step-btn" onmousedown="event.preventDefault()" onclick="zoomMapStep(1)" title="Aumentar zoom">+</button>
     </div>
     <div class="topbar-right">
       <span id="measure-display" style="display:none" class="measure-badge"></span>
@@ -779,6 +781,6 @@
 
 <script src="/static/js/qrgen.js"></script>
 <script>window.ROOM_ID = "{{ room_id }}";</script>
-<script src="/static/js/room.js?v=20260819"></script>
+<script src="/static/js/room.js?v=20260820"></script>
 </body>
 </html>

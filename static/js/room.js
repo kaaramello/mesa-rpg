@@ -345,6 +345,15 @@ socket.on('library_item_deleted', (data) => {
   renderLibraryTree();
 });
 
+const _LIB_LS = 'rpg_' + ROOM_ID + '_lib_';
+
+function _libSaveLocal(id, html) {
+  try { localStorage.setItem(_LIB_LS + id, JSON.stringify({ html, ts: Date.now() })); } catch(e) {}
+}
+function _libGetLocal(id) {
+  try { const r = localStorage.getItem(_LIB_LS + id); return r ? JSON.parse(r) : null; } catch(e) { return null; }
+}
+
 function libOpenPage(id) {
   const item = library[id];
   if (!item || item.type !== 'page') return;
@@ -354,7 +363,22 @@ function libOpenPage(id) {
   const titleEl = document.getElementById('lib-page-title');
   const contentEl = document.getElementById('lib-page-content');
   if (titleEl) { titleEl.textContent = item.name; titleEl.contentEditable = isGM; }
-  if (contentEl) { contentEl.innerHTML = item.content || ''; contentEl.contentEditable = isGM; }
+  if (contentEl) {
+    const serverContent = item.content || '';
+    const local = _libGetLocal(id);
+    // Usa local se for mais recente que o servidor
+    const useLocal = local && local.ts && local.html && local.html !== serverContent;
+    contentEl.innerHTML = useLocal ? local.html : serverContent;
+    contentEl.contentEditable = isGM;
+    // Se tinha conteúdo local mais recente, reenvia pro servidor
+    if (useLocal) {
+      item.content = local.html;
+      clearTimeout(_libContentDebounce);
+      _libContentDebounce = setTimeout(() => {
+        socket.emit('library_update_content', { room_id: ROOM_ID, id, content: local.html });
+      }, 300);
+    }
+  }
   renderLibraryTree();
 }
 
@@ -373,6 +397,8 @@ function libUpdateContent() {
   clearTimeout(_libContentDebounce);
   const id = libCurrentPageId;
   const html = document.getElementById('lib-page-content').innerHTML;
+  // Backup imediato no localStorage
+  _libSaveLocal(id, html);
   _libContentDebounce = setTimeout(() => {
     if (library[id]) library[id].content = html;
     socket.emit('library_update_content', { room_id: ROOM_ID, id, content: html });
@@ -1341,6 +1367,19 @@ function onMapMouseUp(e) {
   }
   if (isPanning) { mapCanvas.style.cursor = currentTool === 'move' ? 'grab' : 'crosshair'; }
   isPanning = false;
+}
+
+function zoomMapStep(dir) {
+  if (!mapCanvas) return;
+  const delta = dir > 0 ? 1.25 : 0.8;
+  const cx = mapCanvas.width / 2, cy = mapCanvas.height / 2;
+  const newZoom = Math.min(4, Math.max(0.1, mapZoom * delta));
+  mapOffset.x = cx - (cx - mapOffset.x) * (newZoom / mapZoom);
+  mapOffset.y = cy - (cy - mapOffset.y) * (newZoom / mapZoom);
+  mapZoom = newZoom;
+  drawMap();
+  const zl = document.getElementById('zoom-info');
+  if (zl) zl.textContent = Math.round(mapZoom * 100) + '%';
 }
 
 function onMapWheel(e) {

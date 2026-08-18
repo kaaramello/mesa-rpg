@@ -95,52 +95,65 @@ async function loadRooms() {
 }
 
 let _saveTimer = null;
+
+async function _flushSave() {
+  clearTimeout(_saveTimer);
+  _saveTimer = null;
+  if (_mongo) {
+    for (const [id, room] of Object.entries(rooms)) {
+      try {
+        await _mongo.updateOne(
+          { _id: id },
+          { $set: {
+            messages: room.messages.slice(-500),
+            tokens: room.tokens,
+            pins: room.pins,
+            map: room.map,
+            notes: room.notes,
+            library: room.library,
+            presets: room.presets
+          }},
+          { upsert: true }
+        );
+      } catch (e) {
+        console.error('Erro ao salvar no MongoDB:', e.message);
+      }
+    }
+    return;
+  }
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const toSave = {};
+    for (const [id, room] of Object.entries(rooms)) {
+      toSave[id] = {
+        messages: room.messages.slice(-500),
+        tokens: room.tokens,
+        pins: room.pins,
+        map: room.map,
+        notes: room.notes,
+        library: room.library,
+        presets: room.presets
+      };
+    }
+    fs.writeFileSync(SAVE_FILE, JSON.stringify(toSave, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Erro ao salvar no arquivo:', e.message);
+  }
+}
+
 function saveRooms() {
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(async () => {
-    if (_mongo) {
-      for (const [id, room] of Object.entries(rooms)) {
-        try {
-          await _mongo.updateOne(
-            { _id: id },
-            { $set: {
-              messages: room.messages.slice(-500),
-              tokens: room.tokens,
-              pins: room.pins,
-              map: room.map,
-              notes: room.notes,
-              library: room.library,
-              presets: room.presets
-            }},
-            { upsert: true }
-          );
-        } catch (e) {
-          console.error('Erro ao salvar no MongoDB:', e.message);
-        }
-      }
-      return;
-    }
-    // fallback: arquivo local
-    try {
-      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-      const toSave = {};
-      for (const [id, room] of Object.entries(rooms)) {
-        toSave[id] = {
-          messages: room.messages.slice(-500),
-          tokens: room.tokens,
-          pins: room.pins,
-          map: room.map,
-          notes: room.notes,
-          library: room.library,
-          presets: room.presets
-        };
-      }
-      fs.writeFileSync(SAVE_FILE, JSON.stringify(toSave, null, 2), 'utf8');
-    } catch (e) {
-      console.error('Erro ao salvar no arquivo:', e.message);
-    }
-  }, 2000);
+  _saveTimer = setTimeout(_flushSave, 2000);
 }
+
+// Salva imediatamente antes de encerrar (evita perda de dados no deploy do Render)
+async function _shutdown(signal) {
+  console.log(`${signal} recebido — salvando dados antes de encerrar...`);
+  try { await _flushSave(); console.log('Dados salvos.'); } catch(e) { console.error('Erro ao salvar no shutdown:', e.message); }
+  process.exit(0);
+}
+process.on('SIGTERM', () => _shutdown('SIGTERM'));
+process.on('SIGINT',  () => _shutdown('SIGINT'));
 
 // ===================== ESTADO =====================
 const rooms = {};

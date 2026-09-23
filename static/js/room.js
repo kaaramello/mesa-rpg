@@ -871,7 +871,8 @@ function leaveRoom() {
 }
 
 function copyRoomLink() {
-  const url = window.location.href;
+  const base = window._radminURL || window.location.origin;
+  const url = `${base}?sala=${encodeURIComponent(ROOM_ID)}`;
   navigator.clipboard.writeText(url).then(() => {
     const btn = document.querySelector('.copy-btn');
     const orig = btn.textContent;

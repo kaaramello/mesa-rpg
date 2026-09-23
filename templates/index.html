@@ -120,15 +120,22 @@
   // Restaurar dados da última sessão
   window.addEventListener('load', () => {
     const savedName = localStorage.getItem('rpg_last_name');
-    const savedRoom = localStorage.getItem('rpg_last_room');
     const savedIsGM = localStorage.getItem('rpg_last_is_gm') === '1';
     if (savedName) document.getElementById('player-name').value = savedName;
+
+    // Sala via ?sala= no link compartilhado tem prioridade
+    const urlSala = new URLSearchParams(window.location.search).get('sala');
+    const savedRoom = urlSala || localStorage.getItem('rpg_last_room');
     if (savedRoom) document.getElementById('room-code').value = savedRoom;
-    if (savedIsGM) {
+
+    if (savedIsGM && !urlSala) {
       document.getElementById('is-gm').checked = true;
       if (savedRoom) document.getElementById('room-name-create').value = savedRoom;
       toggleGMFields();
     }
+
+    // Foca no nome se sala já veio pelo link
+    if (urlSala) document.getElementById('player-name').focus();
   });
 
   function toggleGMFields() {

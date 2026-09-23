@@ -6,12 +6,15 @@ let mainWindow;
 
 function getLocalIP() {
   const ifaces = os.networkInterfaces();
+  let fallback = null;
   for (const name of Object.keys(ifaces)) {
     for (const iface of ifaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+      if (iface.family !== 'IPv4' || iface.internal) continue;
+      if (iface.address.startsWith('26.')) return iface.address; // Radmin VPN
+      if (!fallback) fallback = iface.address;
     }
   }
-  return 'localhost';
+  return fallback || 'localhost';
 }
 
 async function startServer() {

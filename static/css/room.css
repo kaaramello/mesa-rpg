@@ -1276,7 +1276,6 @@ body.is-gm .sheet-btn { display: none !important; }
   :root { --nav-w: 0px; --rp-w: 280px; }
   .tpl-modal-body { flex-direction: column; }
   .tpl-list-panel { width: 100%; max-height: 160px; border-right: none; border-bottom: 1px solid var(--border); }
-}
   #map-zoom-float { display: flex; }
 
   body { flex-direction: column; overflow: hidden; }

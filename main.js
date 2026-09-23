@@ -4,17 +4,17 @@ const os = require('os');
 
 let mainWindow;
 
-function getLocalIP() {
+function getAllIPs() {
   const ifaces = os.networkInterfaces();
-  let fallback = null;
+  let wifi = null, radmin = null;
   for (const name of Object.keys(ifaces)) {
     for (const iface of ifaces[name]) {
       if (iface.family !== 'IPv4' || iface.internal) continue;
-      if (iface.address.startsWith('26.')) return iface.address; // Radmin VPN
-      if (!fallback) fallback = iface.address;
+      if (iface.address.startsWith('26.')) { radmin = iface.address; }
+      else if (!wifi) { wifi = iface.address; }
     }
   }
-  return fallback || 'localhost';
+  return { wifi: wifi || 'localhost', radmin };
 }
 
 async function startServer() {
@@ -28,7 +28,7 @@ async function startServer() {
 
 async function createWindow() {
   const port = await startServer();
-  const localIP = getLocalIP();
+  const { wifi, radmin } = getAllIPs();
 
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -43,26 +43,26 @@ async function createWindow() {
     },
   });
 
-  // Menu minimalista
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    {
-      label: 'Mesa RPG',
-      submenu: [
-        { label: `Link local: http://${localIP}:${port}`, enabled: false },
-        { type: 'separator' },
-        { label: 'Recarregar', accelerator: 'F5', click: () => mainWindow.reload() },
-        { label: 'Dev Tools', accelerator: 'F12', click: () => mainWindow.webContents.toggleDevTools() },
-        { type: 'separator' },
-        { label: 'Sair', role: 'quit' },
-      ]
-    }
-  ]));
+  const menuItems = [
+    { label: `WiFi/Celular: http://${wifi}:${port}`, enabled: false },
+  ];
+  if (radmin) menuItems.push({ label: `Radmin VPN:  http://${radmin}:${port}`, enabled: false });
+  menuItems.push({ type: 'separator' });
+  menuItems.push({ label: 'Recarregar', accelerator: 'F5', click: () => mainWindow.reload() });
+  menuItems.push({ label: 'Dev Tools', accelerator: 'F12', click: () => mainWindow.webContents.toggleDevTools() });
+  menuItems.push({ type: 'separator' });
+  menuItems.push({ label: 'Sair', role: 'quit' });
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'Mesa RPG', submenu: menuItems }]));
 
   mainWindow.loadURL(`http://localhost:${port}`);
 
   mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow.setTitle(`Mesa RPG Digital — compartilhe: http://${localIP}:${port}`);
-    mainWindow.webContents.executeJavaScript(`window._radminURL = "http://${localIP}:${port}";`);
+    mainWindow.setTitle(`Mesa RPG Digital — WiFi: http://${wifi}:${port}${radmin ? ` | Radmin: http://${radmin}:${port}` : ''}`);
+    // _wifiURL para celular/rede local, _radminURL para Radmin VPN
+    mainWindow.webContents.executeJavaScript(
+      `window._wifiURL = "http://${wifi}:${port}"; window._radminURL = ${radmin ? `"http://${radmin}:${port}"` : 'null'};`
+    );
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

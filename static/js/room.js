@@ -871,7 +871,7 @@ function leaveRoom() {
 }
 
 function copyRoomLink() {
-  const base = window._radminURL || window.location.origin;
+  const base = window._wifiURL || window._radminURL || window.location.origin;
   const url = `${base}?sala=${encodeURIComponent(ROOM_ID)}`;
   navigator.clipboard.writeText(url).then(() => {
     const btn = document.querySelector('.copy-btn');
@@ -2370,7 +2370,7 @@ function closeModal(id) {
 }
 
 function openQR() {
-  const url = window._radminURL || window.location.origin;
+  const url = window._wifiURL || window._radminURL || window.location.origin;
   document.getElementById('qr-url-text').textContent = url;
 
   const qr = qrcode(0, 'M');

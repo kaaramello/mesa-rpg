@@ -130,44 +130,33 @@ INSERT INTO templates (id, name, builtin, data) VALUES (
   true,
   '{
     "classes": [
-      {"id":"acad","label":"Acadêmico","icon":"📚"},
-      {"id":"arte","label":"Artista","icon":"🎨"},
-      {"id":"crim","label":"Criminoso","icon":"🔪"},
-      {"id":"cult","label":"Cultista","icon":"🕯️"},
-      {"id":"dete","label":"Detetive","icon":"🔍"},
-      {"id":"medi","label":"Médico","icon":"⚕️"},
-      {"id":"mili","label":"Militar","icon":"🎖️"},
-      {"id":"ocul","label":"Ocultista","icon":"🔮"},
-      {"id":"reli","label":"Religioso","icon":"✝️"},
-      {"id":"aven","label":"Aventureiro","icon":"🗺️"}
+      {"id":"sensitivo","label":"Sensitivo","icon":"👁️"},
+      {"id":"possuido","label":"Possuído","icon":"😈"},
+      {"id":"feiticeiro","label":"Feiticeiro","icon":"🔮"},
+      {"id":"santificado","label":"Santificado","icon":"✝️"}
     ],
     "resources": [
       {"id":"vida","label":"VIDA","icon":"❤️","max":10,"color":"#e94560"},
-      {"id":"san","label":"SANIDADE","icon":"🧠","max":10,"color":"#7c6af7"},
-      {"id":"ene","label":"ENERGIA","icon":"⚡","max":10,"color":"#f59e0b"}
+      {"id":"sanidade","label":"SANIDADE","icon":"🧠","max":10,"color":"#7c6af7"},
+      {"id":"energia","label":"ENERGIA","icon":"⚡","max":10,"color":"#f59e0b"}
     ],
     "attrs": [
-      {"id":"forca","label":"FORÇA"},
-      {"id":"agilidade","label":"AGILIDADE"},
-      {"id":"intelecto","label":"INTELECTO"},
-      {"id":"percepcao","label":"PERCEPÇÃO"},
-      {"id":"carisma","label":"CARISMA"},
-      {"id":"ocultismo","label":"OCULTISMO"}
+      {"id":"forca","label":"FORÇA","icon":"👊"},
+      {"id":"agilidade","label":"AGILIDADE","icon":"🏃"},
+      {"id":"defesa","label":"DEFESA","icon":"🛡️"},
+      {"id":"inteligencia","label":"INTELIGÊNCIA","icon":"🧠"},
+      {"id":"mental","label":"MENTAL","icon":"🧿"},
+      {"id":"labia","label":"LÁBIA","icon":"💬"},
+      {"id":"furtividade","label":"FURTIVIDADE","icon":"🌑"}
     ],
     "pericias": [
-      {"id":"atletismo","label":"ATLETISMO"},
-      {"id":"furtividade","label":"FURTIVIDADE"},
-      {"id":"investigacao","label":"INVESTIGAÇÃO"},
-      {"id":"medicina","label":"MEDICINA"},
-      {"id":"persuasao","label":"PERSUASÃO"},
-      {"id":"tiro","label":"TIRO"},
-      {"id":"briga","label":"BRIGA"},
-      {"id":"rituais","label":"RITUAIS"},
-      {"id":"historia","label":"HISTÓRIA"},
-      {"id":"conducao","label":"CONDUÇÃO"},
-      {"id":"tecnologia","label":"TECNOLOGIA"},
-      {"id":"sobrevivencia","label":"SOBREVIVÊNCIA"}
+      {"id":"investigacao","label":"INVESTIGAÇÃO","icon":"🔍"},
+      {"id":"sobrevivencia","label":"SOBREVIVÊNCIA","icon":"🎒"},
+      {"id":"ocultismo","label":"OCULTISMO","icon":"🔮"},
+      {"id":"religiao","label":"RELIGIÃO","icon":"✝️"},
+      {"id":"intuicao","label":"INTUIÇÃO","icon":"👁️"},
+      {"id":"medicina","label":"MEDICINA","icon":"🩺"}
     ],
-    "tabs": ["status","attrs","pericias","combate","inventario","historia"]
+    "tabs": ["perfil","status","inventario","habilidades","historia"]
   }'
 ) ON CONFLICT (id) DO NOTHING;

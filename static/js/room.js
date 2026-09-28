@@ -917,10 +917,11 @@ document.addEventListener('keydown', (e) => {
 // ===================== DICE =====================
 let _diceOverlayTimer = null;
 
+window._attrDice = 12;
 function rollAttr(label, inputId) {
   const el = document.getElementById(inputId);
   const value = parseInt(el?.value) || 0;
-  socket.emit('attr_roll', { room_id: ROOM_ID, label, value });
+  socket.emit('attr_roll', { room_id: ROOM_ID, label, value, dice: window._attrDice || 12 });
 }
 
 function rollDice(sides, count, mod) {
@@ -2001,7 +2002,11 @@ socket.on('player_sheet_data', (data) => {
   const titleEl = document.getElementById('sheet-main-title');
   const banner = document.getElementById('sheet-gm-banner');
   if (titleEl) titleEl.textContent = `FICHA DE ${playerName.toUpperCase()}`;
-  if (banner) { banner.textContent = `👁 VISUALIZANDO — MODO LEITURA`; banner.style.display = 'block'; }
+  if (banner) {
+    const bannerText = document.getElementById('sheet-gm-banner-text');
+    if (bannerText) bannerText.textContent = `✏️ EDITANDO FICHA DE ${playerName.toUpperCase()}`;
+    banner.style.display = 'flex';
+  }
   modal.classList.add('sheet-gm-view');
   modal._gmViewSid = data.sid;
   modal.classList.remove('hidden');
@@ -2246,6 +2251,10 @@ socket.on('player_vitals_updated', (data) => {
   renderPlayers();
 });
 
+socket.on('my_sheet_updated', (data) => {
+  if (data.sheet) applySheet(data.sheet);
+});
+
 // ===================== NÍVEL AUTOMÁTICO =====================
 const LEVEL_GAINS = [
   '+3 pontos em atributos, +2 pontos em perícia',
@@ -2375,6 +2384,20 @@ function closeModal(id) {
     if (banner) banner.style.display = 'none';
     loadSheetFromStorage();
   }
+}
+
+function gmSavePlayerSheet() {
+  const modal = document.getElementById('modal-sheet');
+  if (!modal._gmViewSid) return;
+  const sheet = getSheet();
+  socket.emit('gm_update_sheet', { room_id: ROOM_ID, target_sid: modal._gmViewSid, sheet }, (res) => {
+    const bannerText = document.getElementById('sheet-gm-banner-text');
+    if (bannerText) bannerText.textContent = res?.error ? `❌ Erro ao salvar` : `✅ Salvo!`;
+    setTimeout(() => {
+      const p = players[modal._gmViewSid];
+      if (bannerText && p) bannerText.textContent = `✏️ EDITANDO FICHA DE ${p.name.toUpperCase()}`;
+    }, 2000);
+  });
 }
 
 function openQR() {

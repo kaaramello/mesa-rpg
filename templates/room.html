@@ -476,7 +476,10 @@
 <div id="modal-sheet" class="modal hidden">
   <div class="sheet-overlay" onclick="closeSheetModal()"></div>
   <div class="sheet-fullbox">
-    <div class="sheet-gm-banner" id="sheet-gm-banner" style="display:none"></div>
+    <div class="sheet-gm-banner" id="sheet-gm-banner" style="display:none">
+      <span id="sheet-gm-banner-text">👁 VISUALIZANDO</span>
+      <button class="sheet-gm-save-btn" onclick="gmSavePlayerSheet()">💾 Salvar Ficha</button>
+    </div>
     <div class="sheet-header-bar">
       <div class="sheet-title-area">
         <div class="sheet-ornament">✦</div>
@@ -539,6 +542,18 @@
       <!-- ABA: STATUS -->
       <div class="stab" id="stab-status">
         <div class="stab-inner">
+          <div class="attr-dice-row">
+            <span class="attr-dice-label">Dado de teste:</span>
+            <select id="attr-dice-sel" class="attr-dice-select" onchange="window._attrDice=parseInt(this.value)">
+              <option value="4">D4</option>
+              <option value="6">D6</option>
+              <option value="8">D8</option>
+              <option value="10">D10</option>
+              <option value="12" selected>D12</option>
+              <option value="20">D20</option>
+              <option value="100">D100</option>
+            </select>
+          </div>
           <div class="stab-status-cols">
             <div class="sheet-block" id="sh-attrs-container">
               <div class="sheet-block-title">ATRIBUTOS</div>

@@ -188,14 +188,14 @@ class SocketShim {
   _onSheetChange(p) {
     const row = p.new || p.old;
     if (!row) return;
-    // GM vê vitais de outros jogadores via presença
-    // Quando a ficha do jogador é atualizada, ele próprio atualiza sua presença
     if (row.session_id === this.id) {
-      // Minha própria ficha mudou (GM editou meus vitais) → atualizo minha presença
+      // Minha ficha mudou (GM editou) → atualizo localStorage e presença
+      if (row.sheet) localStorage.setItem('rpg_sheet_v2', JSON.stringify(row.sheet));
       if (row.vitals) {
         this._myVitals = row.vitals;
         this._ch.track({ ...this._getMyPresence(), vitals: row.vitals });
       }
+      this._fire('my_sheet_updated', { sheet: row.sheet });
     }
   }
 
@@ -300,11 +300,11 @@ class SocketShim {
         return;
       }
       case 'attr_roll': {
-        const { label, value } = data;
-        const roll = Math.floor(Math.random() * 12) + 1;
+        const { label, value, dice = 12 } = data;
+        const roll = Math.floor(Math.random() * dice) + 1;
         const total = roll + (value || 0);
-        const success = total >= 12;
-        const text = `testou **${label}** — rolou ${roll} + ${value || 0} = **${total}** → ${success ? '✅ Sucesso' : '❌ Falha'}`;
+        const success = total >= dice;
+        const text = `testou **${label}** — rolou ${roll} + ${value || 0} = **${total}** no D${dice} → ${success ? '✅ Sucesso' : '❌ Falha'}`;
         const id = this._uid();
         this._pendingMsgIds.add(id);
         const msg = { id, room_id: rid, type: 'roll', author: this.playerName, text, rolls: [roll], total };
@@ -435,6 +435,15 @@ class SocketShim {
         const { data: row } = await db.from('player_sheets').select('*').eq('room_id', rid).eq('session_id', data.target_sid).single();
         if (row) this._fire('player_sheet_data', { sid: data.target_sid, playerName: row.player_name, sheet: row.sheet });
         return;
+      }
+      case 'gm_update_sheet': {
+        const vitals = this._extractVitals(data.sheet);
+        const { error } = await db.from('player_sheets').upsert({
+          room_id: rid, session_id: data.target_sid,
+          sheet: data.sheet, vitals,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'room_id,session_id' });
+        return error ? { error: error.message } : { ok: true };
       }
       case 'update_vitals': {
         const { data: row } = await db.from('player_sheets').select('vitals').eq('room_id', rid).eq('session_id', data.target_sid).single();

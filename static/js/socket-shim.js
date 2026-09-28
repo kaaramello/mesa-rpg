@@ -389,10 +389,9 @@ class SocketShim {
 
       // ── PRESETS ──
       case 'save_preset': {
-        // Captura estado atual do mapa — room.js expõe mapState, tokens, pins como globais
-        const mapSnap = window.mapState ? { ...window.mapState } : {};
-        const tokSnap = window.tokens ? { ...window.tokens } : {};
-        const pinSnap = window.pins   ? { ...window.pins }   : {};
+        const mapSnap = data.map || {};
+        const tokSnap = data.tokens || {};
+        const pinSnap = data.pins || {};
         await db.from('presets').insert({ id: this._uid(), room_id: rid, name: data.name, data: { map: mapSnap, tokens: tokSnap, pins: pinSnap } });
         return;
       }

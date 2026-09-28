@@ -1761,7 +1761,7 @@ function togglePresetsPanel() {
 function saveCurrentPreset() {
   const name = prompt('Nome deste mapa:', 'Novo Mapa');
   if (name === null) return;
-  socket.emit('save_preset', { room_id: ROOM_ID, name: name.trim() || 'Mapa sem nome' });
+  socket.emit('save_preset', { room_id: ROOM_ID, name: name.trim() || 'Mapa sem nome', map: mapState, tokens, pins });
 }
 
 function loadPreset(id) {

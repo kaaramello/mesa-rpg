@@ -1219,6 +1219,7 @@ function fillRoundedRect(ctx, x, y, w, h, r) {
 }
 
 function drawPin(pin) {
+  if (pin.hidden && !isGM) return;
   const sx = pin.x * mapZoom + mapOffset.x;
   const sy = pin.y * mapZoom + mapOffset.y;
   const r = 14;

@@ -433,7 +433,7 @@ class SocketShim {
       }
       case 'request_player_sheet': {
         const { data: row } = await db.from('player_sheets').select('*').eq('room_id', rid).eq('session_id', data.target_sid).single();
-        if (row) this._fire('player_sheet_data', { sid: data.target_sid, playerName: row.player_name, sheet: row.sheet });
+        this._fire('player_sheet_data', { sid: data.target_sid, playerName: row?.player_name || data.target_name || '', sheet: row?.sheet || {} });
         return;
       }
       case 'gm_update_sheet': {

@@ -1959,7 +1959,8 @@ function addToken() {
 
 // ===================== GM SHEET VIEWER =====================
 function requestPlayerSheet(sid) {
-  socket.emit('request_player_sheet', { room_id: ROOM_ID, target_sid: sid });
+  const playerName = players[sid]?.name || '';
+  socket.emit('request_player_sheet', { room_id: ROOM_ID, target_sid: sid, target_name: playerName });
 }
 
 function switchGMTab(name, btn) {
@@ -2010,191 +2011,6 @@ socket.on('player_sheet_data', (data) => {
   modal.classList.add('sheet-gm-view');
   modal._gmViewSid = data.sid;
   modal.classList.remove('hidden');
-
-  // CÓDIGO ANTIGO (mantido como fallback, não será executado)
-  if (false) {
-  const _modal = document.getElementById('modal-gm-sheet');
-  const title = document.getElementById('gm-sheet-title');
-  const body  = document.getElementById('gm-sheet-body');
-  title.textContent = playerName.toUpperCase();
-  const s = data.sheet || {};
-
-  // Classes
-  const clsBox = document.getElementById('gm-sheet-classes');
-  if (clsBox) {
-    const cls = s.classes || {};
-    clsBox.innerHTML = `<div class="sheet-section-label">CLASSE</div>
-      ${['sentitivo','possuido','feiticeiro','santificado'].map(k =>
-        `<label class="sheet-check"><input type="checkbox" ${cls[k]?'checked':''} disabled> ${k[0].toUpperCase()+k.slice(1)}</label>`
-      ).join('')}`;
-  }
-
-  // Inventário
-  const invHTML = (s.inventory || []).filter(Boolean).map(item =>
-    `<div class="inv-item"><input type="text" value="${(item||'').replace(/"/g,'&quot;')}" class="sheet-input" readonly></div>`
-  ).join('') || '<div style="color:var(--text-faint);font-size:12px;padding:4px">Sem itens</div>';
-
-  // Habilidades
-  const habHTML = (s.habilidades || []).map(h => `
-    <div class="hab-item">
-      <div class="hab-header"><input type="text" class="hab-name" value="${(h.name||'').replace(/"/g,'&quot;')}" readonly></div>
-      <div class="hab-sub-label">PASSIVA</div>
-      <textarea class="hab-passiva" readonly>${escHtml(h.passiva||h.desc||'')}</textarea>
-      <div class="hab-sub-label">CENTRAL</div>
-      <textarea class="hab-central" readonly>${escHtml(h.central||'')}</textarea>
-      <div class="hab-gasto-row"><span class="hab-sub-label" style="margin:0;min-width:44px">GASTO</span>
-      <input type="text" class="hab-cost" value="${(h.cost||'').replace(/"/g,'&quot;')}" readonly></div>
-    </div>`).join('') || '<div style="color:var(--text-faint);font-size:12px;padding:4px">Sem habilidades</div>';
-
-  body.innerHTML = `
-    <style>
-      .gm-stab { display:none }
-      .gm-stab.active { display:block }
-      .gm-stab .sheet-input[readonly], .gm-stab textarea[readonly],
-      .gm-stab .sheet-attr-input[readonly], .gm-stab .sheet-recurso-input[readonly],
-      .gm-stab .hab-name[readonly], .gm-stab .hab-passiva[readonly],
-      .gm-stab .hab-central[readonly], .gm-stab .hab-cost[readonly],
-      .gm-stab .inv-item input[readonly] {
-        opacity:0.85; cursor:default; pointer-events:none;
-      }
-    </style>
-
-    <!-- PERFIL -->
-    <div class="gm-stab active" id="gms-perfil">
-      <div class="stab-inner">
-        <div class="sheet-block">
-          <div class="sheet-block-title">DADOS DO PERSONAGEM</div>
-          <div class="sheet-avatar-row">
-            <div class="sheet-avatar-slot" style="pointer-events:none">
-              <div class="sheet-avatar-viewport">
-                ${s.avatar ? `<img src="${s.avatar}" style="width:100%;height:100%;object-fit:cover;display:block">` : '<span style="color:var(--text-faint);font-size:11px">SEM FOTO</span>'}
-              </div>
-            </div>
-            <div class="sheet-dados-fields">
-              <div class="sheet-field-row"><label>NOME</label>${_gmRO(s.name,'sheet-input sheet-input-full')}</div>
-              <div class="sheet-field-trio">
-                <div class="sheet-field-item"><label>NÍVEL</label>${_gmRO(s.nivel,'sheet-input')}</div>
-                <div class="sheet-field-item"><label>XP</label>${_gmRO(s.xp,'sheet-input')}</div>
-                <div class="sheet-field-item"><label>IDADE</label>${_gmRO(s.age,'sheet-input')}</div>
-              </div>
-              <div class="sheet-field-trio">
-                <div class="sheet-field-item"><label>ALTURA</label>${_gmRO(s.height,'sheet-input')}</div>
-                <div class="sheet-field-item"><label>PESO</label>${_gmRO(s.weight,'sheet-input')}</div>
-                <div class="sheet-field-item"><label>PROFISSÃO</label>${_gmRO(s.profissao,'sheet-input')}</div>
-              </div>
-              <div class="sheet-field-row"><label>APARÊNCIA</label>${_gmRO(s.appearance,'sheet-input sheet-input-full')}</div>
-            </div>
-          </div>
-        </div>
-        <div class="sheet-block">
-          <div class="sheet-block-title">RECURSOS</div>
-          <div class="sheet-recursos">
-            <div class="sheet-recurso vida">
-              <div class="sheet-recurso-label">VIDA</div>
-              <div class="sheet-recurso-icon">❤️</div>
-              <div class="sheet-recurso-fields">${_gmNum(s.vida,'sheet-recurso-input')}<span>/</span>${_gmNum(s['vida-max'],'sheet-recurso-input')}</div>
-            </div>
-            <div class="sheet-recurso mental-r">
-              <div class="sheet-recurso-label">MENTAL</div>
-              <div class="sheet-recurso-icon">🧠</div>
-              <div class="sheet-recurso-fields">${_gmNum(s.sanidade,'sheet-recurso-input')}<span>/</span>${_gmNum(s['sanidade-max'],'sheet-recurso-input')}</div>
-            </div>
-            <div class="sheet-recurso energia">
-              <div class="sheet-recurso-label">ENERGIA</div>
-              <div class="sheet-recurso-icon">⚡</div>
-              <div class="sheet-recurso-fields">${_gmNum(s.energia,'sheet-recurso-input')}<span>/</span>${_gmNum(s['energia-max'],'sheet-recurso-input')}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- STATUS -->
-    <div class="gm-stab" id="gms-status">
-      <div class="stab-inner">
-        <div class="stab-status-cols">
-          <div class="sheet-block">
-            <div class="sheet-block-title">ATRIBUTOS</div>
-            <div class="sheet-attrs">
-              ${[['👊','FORÇA','forca'],['🏃','AGILIDADE','agilidade'],['🛡️','DEFESA','defesa'],
-                 ['🧠','INTELIGÊNCIA','inteligencia'],['🧿','MENTAL','mental'],
-                 ['💬','LÁBIA','labia'],['🌑','FURTIVIDADE','furtividade']].map(([icon,label,key]) =>
-                `<div class="sheet-attr-row"><span class="sheet-attr-icon">${icon}</span>
-                 <div class="sheet-attr-info"><strong>${label}</strong></div>
-                 ${_gmNum(s[key],'sheet-attr-input')}</div>`).join('')}
-            </div>
-          </div>
-          <div class="sheet-block">
-            <div class="sheet-block-title">PERÍCIAS</div>
-            <div class="sheet-attrs">
-              ${[['🔍','INVESTIGAÇÃO','investigacao'],['🎒','SOBREVIVÊNCIA','sobrevivencia'],
-                 ['🔮','OCULTISMO','ocultismo'],['✝️','RELIGIÃO','religiao'],
-                 ['👁️','INTUIÇÃO','intuicao'],['🩺','MEDICINA','medicina']].map(([icon,label,key]) =>
-                `<div class="sheet-attr-row"><span class="sheet-attr-icon">${icon}</span>
-                 <div class="sheet-attr-info"><strong>${label}</strong></div>
-                 ${_gmNum(s[key],'sheet-attr-input')}</div>`).join('')}
-            </div>
-          </div>
-        </div>
-        <div class="sheet-block">
-          <div class="sheet-block-title">EQUIPAMENTOS</div>
-          ${_gmTA(s.equipamentos,'sheet-input sheet-textarea',3)}
-        </div>
-      </div>
-    </div>
-
-    <!-- INVENTÁRIO -->
-    <div class="gm-stab" id="gms-inventario">
-      <div class="stab-inner">
-        <div class="sheet-block">
-          <div class="sheet-block-title">INVENTÁRIO</div>
-          <div class="sheet-inventory">${invHTML}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- HABILIDADES -->
-    <div class="gm-stab" id="gms-habilidades">
-      <div class="stab-inner">
-        <div class="sheet-block">
-          <div class="sheet-block-title">HABILIDADES</div>
-          <div class="sheet-hab-list">${habHTML}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- HISTÓRIA -->
-    <div class="gm-stab" id="gms-historia">
-      <div class="stab-inner">
-        <div class="sheet-block">
-          <div class="sheet-block-title">PERSONALIDADE</div>
-          ${_gmTA(s.personalidade,'sheet-input sheet-textarea',3)}
-          <div class="sheet-curio-title">CURIOSIDADES</div>
-          <div class="sheet-curio-row"><label>Não pode fazer</label>${_gmRO(s['nao-pode'],'sheet-input sheet-input-full')}</div>
-          <div class="sheet-curio-row"><label>Mais Ama</label>${_gmRO(s['mais-ama'],'sheet-input sheet-input-full')}</div>
-          <div class="sheet-curio-row"><label>Mais Odeia</label>${_gmRO(s['mais-odeia'],'sheet-input sheet-input-full')}</div>
-          <div class="sheet-curio-row"><label>Mais Teme</label>${_gmRO(s['mais-teme'],'sheet-input sheet-input-full')}</div>
-        </div>
-        <div class="sheet-block">
-          <div class="sheet-block-title">HISTÓRIA DO PERSONAGEM</div>
-          ${_gmTA(s.historia,'sheet-input sheet-textarea',8)}
-        </div>
-        <div class="sheet-block">
-          <div class="sheet-block-title">HISTÓRICO / ORIGEM</div>
-          ${_gmTA(s.origin,'sheet-input sheet-textarea',4)}
-        </div>
-      </div>
-    </div>`;
-
-  // Reset para aba PERFIL
-  document.querySelectorAll('#gm-sheet-tabs .sheet-tab').forEach((b,i) => b.classList.toggle('active', i===0));
-
-  // Botão editar vitais
-  const editBtn = document.getElementById('gm-edit-vitals-btn');
-  if (editBtn) { editBtn.onclick = () => { closeModal('modal-gm-sheet'); editPlayerVitals(data.sid); }; }
-
-  _modal.classList.remove('hidden');
-  } // fim if(false)
 });
 
 function closeSheetModal() {
@@ -2389,7 +2205,7 @@ function closeModal(id) {
 function gmSavePlayerSheet() {
   const modal = document.getElementById('modal-sheet');
   if (!modal._gmViewSid) return;
-  const sheet = getSheet();
+  const sheet = gatherSheet();
   socket.emit('gm_update_sheet', { room_id: ROOM_ID, target_sid: modal._gmViewSid, sheet }, (res) => {
     const bannerText = document.getElementById('sheet-gm-banner-text');
     if (bannerText) bannerText.textContent = res?.error ? `❌ Erro ao salvar` : `✅ Salvo!`;
@@ -3557,7 +3373,7 @@ function _renderTemplateResources(tpl) {
     const div = document.createElement('div');
     div.className = 'sheet-recurso';
     div.innerHTML = `
-      <div class="sheet-recurso-label">${res.name}</div>
+      <div class="sheet-recurso-label">${res.label || res.name || res.id}</div>
       <div class="sheet-recurso-icon">${res.icon}</div>
       <div class="sheet-recurso-fields">
         <input type="number" id="sh-res-${res.id}" class="sheet-recurso-input" placeholder="${res.default_max || 50}" min="0">

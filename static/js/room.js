@@ -709,6 +709,7 @@ function sendChat() {
   const input = document.getElementById('chat-input');
   const text = (input.value || '').trim();
   if (!text) return;
+  input.value = '';
 
   // Comandos /rollDX (qualquer número de faces, ex: /rollD6, /rollD12, /rollD20, /rollD6 3)
   const diceMatch = text.match(/^\/roll[Dd](\d+)(?:\s+(\d+))?$/);
@@ -798,7 +799,6 @@ function sendChat() {
   } else {
     socket.emit('chat_message', { room_id: ROOM_ID, text });
   }
-  input.value = '';
 }
 
 socket.on('chat_cleared', () => {

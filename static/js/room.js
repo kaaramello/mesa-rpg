@@ -2363,7 +2363,18 @@ function updateSheetLevelDisplay() {
 }
 
 function closeModal(id) {
-  document.getElementById(id).classList.add('hidden');
+  const modal = document.getElementById(id);
+  modal.classList.add('hidden');
+  if (id === 'modal-sheet' && modal._gmViewSid) {
+    // Restaura a ficha própria depois de visualizar a de outro jogador
+    modal._gmViewSid = null;
+    modal.classList.remove('sheet-gm-view');
+    const titleEl = document.getElementById('sheet-main-title');
+    const banner = document.getElementById('sheet-gm-banner');
+    if (titleEl) titleEl.textContent = 'MINHA FICHA';
+    if (banner) banner.style.display = 'none';
+    loadSheetFromStorage();
+  }
 }
 
 function openQR() {
@@ -2447,7 +2458,7 @@ function loadSheetFromStorage() {
 }
 
 function applySheet(s) {
-  const set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
   set('sh-name', s.name); set('sh-age', s.age); set('sh-height', s.height); set('sh-weight', s.weight);
   set('sh-appearance', s.appearance); set('sh-origin', s.origin); set('sh-profissao', s.profissao);
   set('sh-xp', s.xp);

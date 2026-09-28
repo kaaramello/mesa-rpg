@@ -3542,7 +3542,9 @@ function _renderTemplateClasses(tpl) {
   for (const cls of (tpl.classes || [])) {
     const lbl = document.createElement('label');
     lbl.className = 'sheet-check';
-    lbl.innerHTML = `<input type="checkbox" id="sh-cls-${cls.id}"> ${cls.name}`;
+    const clsLabel = cls.label || cls.name || cls.id;
+    const clsIcon = cls.icon ? cls.icon + ' ' : '';
+    lbl.innerHTML = `<input type="checkbox" id="sh-cls-${cls.id}"> ${clsIcon}${clsLabel}`;
     box.appendChild(lbl);
   }
 }
@@ -3574,13 +3576,15 @@ function _renderTemplateAttrs(tpl) {
   const title = document.querySelector('#sh-attrs-container .sheet-block-title');
   if (title) title.innerHTML = `ATRIBUTOS <span style="font-weight:400;color:var(--text-faint)">(máx ${maxVal})</span>`;
   for (const attr of (tpl.attrs || [])) {
+    const label = attr.label || attr.name || attr.id;
+    const icon = attr.icon || '';
     const div = document.createElement('div');
     div.className = 'sheet-attr-row';
     div.innerHTML = `
-      <span class="sheet-attr-icon">${attr.icon}</span>
-      <div class="sheet-attr-info"><strong>${attr.name}</strong></div>
-      <input type="number" id="sh-attr-${attr.id}" class="sheet-attr-input" min="0" max="${attr.max}" value="0" oninput="updateAttrPoints()">
-      <button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('${attr.name}','sh-attr-${attr.id}')">🎲</button>`;
+      ${icon ? `<span class="sheet-attr-icon">${icon}</span>` : ''}
+      <div class="sheet-attr-info"><strong>${label}</strong></div>
+      <input type="number" id="sh-attr-${attr.id}" class="sheet-attr-input" min="0" max="${attr.max || maxVal}" value="0" oninput="updateAttrPoints()">
+      <button class="attr-roll-btn" title="Testar" onclick="rollAttr('${label}','sh-attr-${attr.id}')">🎲</button>`;
     list.appendChild(div);
   }
   updateAttrPoints();
@@ -3594,13 +3598,15 @@ function _renderTemplatePericias(tpl) {
   const title = document.querySelector('#sh-pericias-container .sheet-block-title');
   if (title) title.innerHTML = `PERÍCIAS <span style="font-weight:400;color:var(--text-faint)">(máx ${maxVal})</span>`;
   for (const per of (tpl.pericias || [])) {
+    const label = per.label || per.name || per.id;
+    const icon = per.icon || '';
     const div = document.createElement('div');
     div.className = 'sheet-attr-row';
     div.innerHTML = `
-      <span class="sheet-attr-icon">${per.icon}</span>
-      <div class="sheet-attr-info"><strong>${per.name}</strong></div>
-      <input type="number" id="sh-per-${per.id}" class="sheet-attr-input" min="0" max="${per.max}" value="0" oninput="updatePerPoints()">
-      <button class="attr-roll-btn" title="Testar (1d12 + valor ≥ 12)" onclick="rollAttr('${per.name}','sh-per-${per.id}')">🎲</button>`;
+      ${icon ? `<span class="sheet-attr-icon">${icon}</span>` : ''}
+      <div class="sheet-attr-info"><strong>${label}</strong></div>
+      <input type="number" id="sh-per-${per.id}" class="sheet-attr-input" min="0" max="${per.max || maxVal}" value="0" oninput="updatePerPoints()">
+      <button class="attr-roll-btn" title="Testar" onclick="rollAttr('${label}','sh-per-${per.id}')">🎲</button>`;
     list.appendChild(div);
   }
   updatePerPoints();

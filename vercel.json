@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "routes": [
+    { "src": "/static/(.*)", "dest": "/static/$1" },
+    { "src": "/room/([^/]+)", "dest": "/templates/room.html" },
+    { "src": "/", "dest": "/templates/index.html" },
+    { "src": "/(.*)", "dest": "/templates/index.html" }
+  ]
+}

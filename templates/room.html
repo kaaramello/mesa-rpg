@@ -10,7 +10,13 @@
 <meta name="apple-mobile-web-app-title" content="Mesa RPG">
 <link rel="apple-touch-icon" href="/static/img/icon-192.png">
 <title>Mesa RPG Digital</title>
-<script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  window._sb = supabase.createClient(
+    'https://acdnfrkefynncuiyuhgv.supabase.co',
+    'sb_publishable_7w9aMQVmzpEh4QPhAry9GQ_o1rEdILG'
+  );
+</script>
 <link rel="stylesheet" href="/static/css/room.css?v=20260922">
 </head>
 <body>
@@ -510,7 +516,7 @@
               <div class="sheet-dados-fields">
                 <div class="sheet-field-row"><label>NOME</label><input type="text" id="sh-name" class="sheet-input sheet-input-full"></div>
                 <div class="sheet-field-trio">
-                  <div class="sheet-field-item"><label>NÍVEL</label><div class="sheet-input sheet-level-display" id="sh-nivel-display" onclick="openLevelPanel(socket.id)" title="Definido pelo mestre — clique para ver os ganhos">0</div></div>
+                  <div class="sheet-field-item"><label>NÍVEL</label><div class="sheet-input sheet-level-display" id="sh-nivel-display" onclick="openLevelPanel(SESSION_TOKEN)" title="Definido pelo mestre — clique para ver os ganhos">0</div></div>
                   <div class="sheet-field-item"><label>XP</label><input type="number" id="sh-xp" class="sheet-input" placeholder="0" min="0"></div>
                   <div class="sheet-field-item"><label>IDADE</label><input type="text" id="sh-age" class="sheet-input"></div>
                 </div>
@@ -742,7 +748,11 @@
 </div>
 
 <script src="/static/js/qrgen.js"></script>
-<script>window.ROOM_ID = "{{ room_id }}";</script>
+<script src="/static/js/socket-shim.js"></script>
+<script>
+  // Em Vercel, a URL é /room/NOME-DA-SALA — extrai o ID do caminho
+  window.ROOM_ID = decodeURIComponent(window.location.pathname.split('/').pop()).toUpperCase();
+</script>
 <!-- ===== MODAL: GERENCIADOR DE TEMPLATES ===== -->
 <div id="modal-templates" class="modal hidden">
   <div class="sheet-overlay" onclick="closeModal('modal-templates')"></div>
@@ -840,6 +850,6 @@
   </div>
 </div>
 
-<script src="/static/js/room.js?v=20260822"></script>
+<script src="/static/js/room.js?v=20260928"></script>
 </body>
 </html>

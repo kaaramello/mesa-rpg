@@ -1,0 +1,9 @@
+node_modules/
+dist-manual/
+_asar_extract/
+2044/
+*.log
+.env
+main.js
+app.js
+package-lock.json

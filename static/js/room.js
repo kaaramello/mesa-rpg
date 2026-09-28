@@ -1,5 +1,5 @@
 // ===================== INIT =====================
-const ROOM_ID = window.ROOM_ID;
+const ROOM_ID = window.ROOM_ID || decodeURIComponent(window.location.pathname.split('/').pop()).toUpperCase();
 const _LS = 'rpg_' + ROOM_ID + '_';
 
 // Valores da sessão atual têm prioridade; fallback para localStorage (persiste ao fechar aba)
@@ -24,18 +24,14 @@ const SESSION_TOKEN = getSessionToken();
 if (!isGM) document.body.classList.add('not-gm');
 if (isGM) document.body.classList.add('is-gm');
 
-// ===================== SOCKET =====================
-const socket = io({ transports: ['websocket', 'polling'] });
+// ===================== SOCKET (Supabase Shim) =====================
+const socket = new SocketShim(ROOM_ID, playerName, isGM, SESSION_TOKEN);
 
 socket.on('connect', () => {
   socket.emit('join', { room_id: ROOM_ID, player_name: playerName, is_gm: isGM, token: SESSION_TOKEN });
-  if (!isGM) {
-    const savedSheet = JSON.parse(localStorage.getItem('rpg_sheet_v2') || 'null');
-    if (savedSheet) {
-      socket.emit('share_sheet', { room_id: ROOM_ID, sheet: savedSheet });
-    }
-  }
 });
+
+socket.connect();
 
 socket.on('kicked', (data) => {
   alert('Você foi desconectado: ' + (data.reason || 'Sessão encerrada.'));
@@ -93,7 +89,7 @@ function renderPlayers() {
     const vidaMax = v.vida_max || 0;
     const sanMax  = v.sanidade_max || 0;
     const enMax   = v.energia_max || 0;
-    const canEditVitals = isOnline && (sid === socket.id || (isGM && !p.is_gm));
+    const canEditVitals = isOnline && (sid === SESSION_TOKEN || (isGM && !p.is_gm));
     const vitalsHtml = p.is_gm ? '' : `
       <div class="pc-vitals${canEditVitals ? ' pc-vitals-clickable' : ''}"${canEditVitals ? ` onclick="editPlayerVitals('${sid}')" title="Clique para editar os vitais"` : ''}>
         <div class="pc-bar-row"><span class="pc-bar-icon">❤️</span><div class="pc-bar-wrap${vidaMax ? '' : ' empty'}"><div class="pc-bar-fill vida" style="width:${vidaPct}%"></div></div><span class="pc-bar-val">${v.vida||0}/${vidaMax||'—'}</span></div>
@@ -134,7 +130,7 @@ function renderPlayers() {
 function updateNavAvatar() {
   const el = document.getElementById('nav-avatar');
   if (!el) return;
-  const mySid = socket.id;
+  const mySid = SESSION_TOKEN;
   const me = players[mySid];
   if (me?.vitals?.avatar) {
     el.innerHTML = `<img src="${me.vitals.avatar}" alt="">`;
@@ -142,7 +138,7 @@ function updateNavAvatar() {
     el.textContent = (playerName || '?')[0].toUpperCase();
   }
   for (const [sid, _p] of Object.entries(players)) {
-    if (_p.token === SESSION_TOKEN || sid === socket.id) {
+    if (_p.token === SESSION_TOKEN || sid === SESSION_TOKEN) {
       el.style.background = playerColor(sid);
       break;
     }
@@ -2217,7 +2213,7 @@ function editPlayerVitals(sid) {
   const v = p.vitals || {};
   _vitalsEditTarget = sid;
   document.getElementById('vitals-modal-title').textContent =
-    sid === socket.id ? '✏️ Meus Vitais' : `✏️ Vitais de ${p.name}`;
+    sid === SESSION_TOKEN ? '✏️ Meus Vitais' : `✏️ Vitais de ${p.name}`;
   document.getElementById('ve-vida').value = v.vida || 0;
   document.getElementById('ve-vida-max').value = v.vida_max || 60;
   document.getElementById('ve-sanidade').value = v.sanidade || 0;
@@ -2332,7 +2328,7 @@ socket.on('player_level_updated', (data) => {
     players[data.sid].bonus_level = data.bonus_level;
   }
   renderPlayers();
-  if (data.sid === socket.id) updateSheetLevelDisplay();
+  if (data.sid === SESSION_TOKEN) updateSheetLevelDisplay();
 });
 
 // ===================== FICHA =====================
@@ -2358,7 +2354,7 @@ function openSheet() {
 function updateSheetLevelDisplay() {
   const el = document.getElementById('sh-nivel-display');
   if (!el) return;
-  const me = players[socket.id] || {};
+  const me = players[SESSION_TOKEN] || {};
   const level = me.level || 0;
   const bonus = me.bonus_level || 0;
   el.textContent = bonus > 0 ? `${level} +B${bonus}` : `${level}`;

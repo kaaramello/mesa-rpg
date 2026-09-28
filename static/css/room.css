@@ -1055,9 +1055,6 @@ body.is-gm .sheet-btn { display: none !important; }
 .sheet-gm-view .sheet-add-btn { display: none !important; }
 .sheet-gm-view .inv-del { display: none !important; }
 .sheet-gm-view .hab-del { display: none !important; }
-.sheet-gm-view input,
-.sheet-gm-view textarea,
-.sheet-gm-view select { pointer-events: none !important; cursor: default !important; }
 .sheet-gm-view input[type="checkbox"] { opacity: 0.7; }
 .sheet-gm-view .sheet-avatar-slot { pointer-events: none !important; }
 .sheet-gm-view .sheet-level-display { pointer-events: none !important; cursor: default !important; }

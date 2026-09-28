@@ -97,12 +97,14 @@ class SocketShim {
       .on('postgres_changes', { event: '*',      schema: 'public', table: 'templates' }, () => this._refreshTemplates())
       .subscribe(async (status) => {
         if (status !== 'SUBSCRIBED') return;
-        // Rastrear presença
+        // Lê nível salvo do banco antes de rastrear presença
+        const { data: myRow } = await db.from('player_sheets').select('vitals').eq('room_id', this.roomId).eq('session_id', this.id).single();
+        if (myRow?.vitals?.level !== undefined) this._myLevel = myRow.vitals.level;
+        if (myRow?.vitals?.bonus_level !== undefined) this._myBonus = myRow.vitals.bonus_level;
         await this._ch.track({
           name: this.playerName, is_gm: this.isGM, token: this.id,
           vitals: this._myVitals, level: this._myLevel, bonus_level: this._myBonus
         });
-        // Sinalizar conexão estabelecida
         this._fire('connect');
       });
   }
@@ -193,9 +195,20 @@ class SocketShim {
       if (row.sheet) localStorage.setItem('rpg_sheet_v2', JSON.stringify(row.sheet));
       if (row.vitals) {
         this._myVitals = row.vitals;
+        if (row.vitals.level !== undefined) this._myLevel = row.vitals.level;
+        if (row.vitals.bonus_level !== undefined) this._myBonus = row.vitals.bonus_level;
         this._ch.track({ ...this._getMyPresence(), vitals: row.vitals });
       }
       this._fire('my_sheet_updated', { sheet: row.sheet });
+    } else {
+      // Ficha de outro jogador mudou — propaga nível se presente
+      if (row.vitals && (row.vitals.level !== undefined || row.vitals.bonus_level !== undefined)) {
+        this._fire('player_level_updated', {
+          sid: row.session_id,
+          level: row.vitals.level || 0,
+          bonus_level: row.vitals.bonus_level || 0,
+        });
+      }
     }
   }
 
@@ -458,15 +471,17 @@ class SocketShim {
         return;
       }
       case 'update_level': {
-        this._myLevel  = data.level;
-        this._myBonus  = data.bonus_level;
         if (data.target_sid === this.id) {
+          this._myLevel = data.level;
+          this._myBonus = data.bonus_level;
           await this._ch?.track({ ...this._getMyPresence(), level: data.level, bonus_level: data.bonus_level });
         } else {
-          // GM atualizou outro jogador — atualiza via player_sheets
+          // GM atualizou outro jogador — merge com vitais existentes (não sobrescreve vida/san/ene)
+          const { data: row } = await db.from('player_sheets').select('vitals').eq('room_id', rid).eq('session_id', data.target_sid).single();
+          const mergedVitals = { ...(row?.vitals || {}), level: data.level, bonus_level: data.bonus_level };
           await db.from('player_sheets').upsert({
             room_id: rid, session_id: data.target_sid,
-            vitals: { level: data.level, bonus_level: data.bonus_level },
+            vitals: mergedVitals,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'room_id,session_id' });
         }
